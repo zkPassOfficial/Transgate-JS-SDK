@@ -10,7 +10,7 @@ The Transgate JS-SDK is a utility package for [Transgate](https://chromewebstore
 
 ## Register an develop account
 
-Please register an account on the [zkPass Dev Center](https://dev.zkapss.org/dashboard) and create a project. Then you can add templates for your project.
+Please register an account on the [zkPass Dev Center](https://dev.zkapss.org/dashboard) and create a project. Then you can add schemas for your project.
 
 ## Installation
 
@@ -33,16 +33,16 @@ yarn add transgate-js-sdk
 import TransgateConnect from 'transgate-js-sdk'
 
   const requestVerifyMessage = async () =>{
-    const appid = "7af1d0768b8a4099f4d0212e0ee6193" //Locate this form on the development platform
+      const appid = "7af1d0768b8a4099f4d0212e0ee6193" //Locate this form on the development platform
 
       const transgate = new TransgateConnect(appid, true)
       const installed = await transgate.isInstalledTransgate()
 
       if(installed){
-        //The template ID that you add for the project
-        const templateId = "0x280e70807f080458b3d1016d56a1eb7137af1d0768b8a4099f4d0212e0ee6193"
+        //The schema ID that you add for the project
+        const schemaId = "0x280e70807f080458b3d1016d56a1eb7137af1d0768b8a4099f4d0212e0ee6193"
 
-        const res = await sdk.launch(templateId)// This method can be invoked in a loop when dealing with multiple templates
+        const res = await transgate.launch(schemaId)// This method can be invoked in a loop when dealing with multiple schemas
 
         //You have the flexibility to handle the validation results based on your requirements.
         console.log("res=======>", res)
@@ -52,8 +52,19 @@ import TransgateConnect from 'transgate-js-sdk'
       }
   }
   
-
 ```
 
+### Verify result fields
+
+| Field Name                    | Description                                                         | 
+| ----------------------------- | ------------------------------------------------------------------- |
+| allocatorAddress              | The address of the allocator node                                   |
+| allocatorSignature            | Signature of the task information by the allocator node             |
+| publicFields                  | Values of public fields defined in schema                           |                               
+| publicFieldsHash              | Hash of public fields values                                        |                               
+| taskId                        | Unique id of the task allocated by the allocator node               |                               
+| uHash                         | Hash value of user unique id in the data source                     |
+| validatorAddress              | The address of the validator node                                   |                               
+| validatorSignature            | The signature of the verification result by the allocator node      |                               
 
 
