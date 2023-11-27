@@ -1,145 +1,173 @@
-import Web3 from "web3"
-import { server, devServer, extensionId } from "./constants"
-
-declare type Address = `0x${string}`
+import Web3, { Address } from 'web3';
+import { server, devServer, extensionId } from './constants';
+import { Result, Task, TaskConfig, VerifyResult } from './types';
 
 export default class TransgateConnect {
-  appid: string
-  installedTransgate?: boolean
-  baseServer: string
+  readonly appid: string;
+  readonly baseServer: string;
+  transgateAvailable?: boolean;
   constructor(appid: string, isDevelopMode?: boolean) {
-    this.appid = appid
-    this.baseServer = isDevelopMode ? devServer : server
+    this.appid = appid;
+    this.baseServer = isDevelopMode ? devServer : server;
   }
-
-  async launch(templateId: string, address?: Address) {
-    const installedTransgate = await this.isInstalledTransgate()
-    if (!installedTransgate) {
-      throw "Please install transgate before generate proof"
+  
+  async launch(schemaId: string, address?: Address) {
+    const transgateAvailable = await this.isTransgateAvailable();
+    if (!transgateAvailable) {
+      throw 'Please install transgate before generate proof';
     }
 
-    const config = await this.requestConfig()    
-    if (!config.schemas[templateId]) {
-      throw "Illegal template id, please check your template info!"
+    const config = await this.requestConfig();
+    if (!config.schemas[schemaId]) {
+      throw 'Illegal schema id, please check your schema info!';
     }
 
-    const templateInfo = await this.requestTemplateInfo(config.schemas[templateId])
-    const task = await this.requestTaskInfo(config.taskRPC, config.token, templateId)    
+    const schemaInfo = await this.requestSchemaInfo(config.schemas[schemaId]);
+    const task = await this.requestTaskInfo(config.taskRPC, config.token, schemaId);
     const extensionParams = {
       ...task,
-      ...templateInfo,
-    }
+      ...schemaInfo,
+    };
 
-    this.launchTransgate(extensionParams, address)
+    this.launchTransgate(extensionParams, address);
 
     return new Promise((resolve, reject) => {
       const eventListener = (event: any) => {
-        if (event.data.type == "GENERATE_ZKP_SUCCESS") {          
-          window?.removeEventListener("message", eventListener)
-          const message = event.data
-          const { taskId, nullifierHash, publicFields = [], signature } = message
-          const publicFieldsList = publicFields.map((item: any) => item.str)
-          let publicData = publicFieldsList.length > 0 ? publicFieldsList.reduce((a: string, b: string) => a + b) : ""
+        if (event.data.type == 'GENERATE_ZKP_SUCCESS') {
+          window?.removeEventListener('message', eventListener);
+          const message: VerifyResult = event.data;
+          const { taskId, nullifierHash, publicFields = [], signature } = message;
+          const publicFieldsList = publicFields.map((item: any) => item.str);
+          let publicData = publicFieldsList.length > 0 ? publicFieldsList.reduce((a: string, b: string) => a + b) : '';
 
-          if (this.verifyMessage(taskId, templateId, nullifierHash, publicData, signature, task.nodeAddress)) {
-            resolve(event.data)
+          if (this.verifyMessageSignature(taskId, schemaId, nullifierHash, publicData, signature, task.nodeAddress)) {
+            resolve(this.buildResult(message, task, publicData, config.allocatorAddress));
           } else {
-            reject("verify message error")
+            reject('verify message error');
           }
         }
-      }
-      window?.addEventListener("message", eventListener)
-    })
+      };
+      window?.addEventListener('message', eventListener);
+    });
   }
 
-  launchTransgate(taskInfo: any, address?: Address) {
+  private launchTransgate(taskInfo: any, address?: Address) {
     window?.postMessage(
       {
-        type: "AUTH_ZKPASS",
+        type: 'AUTH_ZKPASS',
         mintAccount: address,
         ...taskInfo,
       },
-      "*"
-    )
+      '*',
+    );
   }
 
   /**
    * request task info
-   * @param {*} schemaId string template id
+   * @param {*} schemaId string schema id
    * @returns
    */
-  async requestTaskInfo(taskUrl: string, token: string, schemaId: string) {
+  private async requestTaskInfo(taskUrl: string, token: string, schemaId: string): Promise<Task> {
     const response = await fetch(`https://${taskUrl}?token=${token}`, {
-      method: "POST",
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify({
         schemaId,
       }),
-    })
+    });
     if (response.ok) {
-      return await response.json()
+      return await response.json();
     }
 
-    throw `Request task info error`
+    throw `Request task info error`;
   }
 
-  async requestConfig() {
+  private async requestConfig(): Promise<TaskConfig> {
     const response = await fetch(`${this.baseServer}/sdk/config?${new URLSearchParams({ appid: this.appid })}`, {
-      method: "GET",
+      method: 'GET',
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
       },
-    })    
+    });
     if (response.ok) {
-      return await response.json()
+      return await response.json();
     }
 
-    throw `Please check your rpc and appid`
+    throw `Please check your rpc and appid`;
   }
   /**
-   * request template detail info
+   * request schema detail info
    * @param schemaUrl
    */
-  async requestTemplateInfo(schemaUrl: string) {
-    const response = await fetch(schemaUrl)    
+  private async requestSchemaInfo(schemaUrl: string) {
+    const response = await fetch(schemaUrl);
     if (response.ok) {
-      return await response.json()
+      return await response.json();
     }
-    throw "Illegal schema url, please contact develop team!"
+    throw 'Illegal schema url, please contact develop team!';
   }
 
-  async isInstalledTransgate() {
-    const url = `chrome-extension://${extensionId}/images/icon-16.png`
-    const { statusText } = await fetch(url)
-    if (statusText == "OK") {
-      this.installedTransgate = true
-      return true
+  private async isTransgateAvailable() {
+    const url = `chrome-extension://${extensionId}/images/icon-16.png`;
+    const { statusText } = await fetch(url);
+    if (statusText == 'OK') {
+      this.transgateAvailable = true;
+      return true;
     }
-    return false
+    return false;
   }
   /**
    * check signature is matched with task info
-   * @param taskId 
-   * @param schemaId 
-   * @param nullifier 
-   * @param publicData 
-   * @param signature 
-   * @param originAddress 
-   * @returns 
+   * @param taskId
+   * @param schemaId
+   * @param nullifier
+   * @param publicData
+   * @param signature
+   * @param originAddress
+   * @returns
    */
-  verifyMessage(
+  private verifyMessageSignature(
     taskId: string,
     schemaId: string,
     nullifier: string,
     publicData: string,
     signature: string,
-    originAddress: string
+    originAddress: string,
   ) {
-    const web3 = new Web3()
-    let message = taskId + schemaId + nullifier + publicData
-    const nodeAddress = web3.eth.accounts.recover(message, signature)
-    return nodeAddress === originAddress
+    const web3 = new Web3();
+
+    const publicFieldsHash = !!publicData
+      ? Web3.utils.soliditySha3(Web3.utils.stringToHex(publicData))
+      : Web3.utils.utf8ToHex('1');
+
+    const messageStruct = {
+      taskId,
+      schemaId,
+      uHash: nullifier,
+      publicFieldsHash,
+    };
+
+    const nodeAddress = web3.eth.accounts.recover(JSON.stringify(messageStruct), signature);
+    return nodeAddress === originAddress;
+  }
+  private buildResult(data: VerifyResult, taskInfo: Task, publicData: string, allocatorAddress:string): Result {
+    const { publicFields, taskId, nullifierHash, signature } = data;
+    const { nodeAddress, allocSignature } = taskInfo;
+    const publicFieldsHash = (
+      !!publicData ? Web3.utils.soliditySha3(Web3.utils.stringToHex(publicData)) : Web3.utils.utf8ToHex('1')
+    ) as string;
+
+    return {
+      taskId,
+      allocatorAddress,
+      allocatorSignature: allocSignature,
+      publicFields: publicFields,
+      publicFieldsHash: publicFieldsHash,
+      uHash: nullifierHash,
+      validatorAddress: nodeAddress,
+      validatorSignature: signature,
+    };
   }
 }

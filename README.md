@@ -32,25 +32,28 @@ yarn add transgate-js-sdk
 ```bash
 import TransgateConnect from 'transgate-js-sdk'
 
-  const requestVerifyMessage = async () =>{
-      const appid = "7af1d0768b8a4099f4d0212e0ee6193" //Locate this form on the development platform
+const requestVerifyMessage = async () =>{
+  try{
+    const appid = "7af1d0768b8a4099f4d0212e0ee6193" //Locate this form on the development platform
 
-      const transgate = new TransgateConnect(appid, true)
-      const installed = await transgate.isInstalledTransgate()
+    const transgate = new TransgateConnect(appid, true)
+    const isAvailable = await transgate.isTransgateAvailable()
 
-      if(installed){
-        //The schema ID that you add for the project
-        const schemaId = "0x280e70807f080458b3d1016d56a1eb7137af1d0768b8a4099f4d0212e0ee6193"
+    if(isAvailable){
+      //The schema ID that you add for the project
+      const schemaId = "0x280e70807f080458b3d1016d56a1eb7137af1d0768b8a4099f4d0212e0ee6193"
 
-        const res = await transgate.launch(schemaId)// This method can be invoked in a loop when dealing with multiple schemas
+      const res = await transgate.launch(schemaId)// This method can be invoked in a loop when dealing with multiple schemas
 
-        //You have the flexibility to handle the validation results based on your requirements.
-        console.log("res=======>", res)
+      //You have the flexibility to handle the validation results based on your requirements.        
 
-      }else{
-        alert('Please install zkPass Transgate from https://chromewebstore.google.com/detail/zkpass-transgate/afkoofjocpbclhnldmmaphappihehpma')
-      }
+    }else{
+      console.log('Please install zkPass Transgate from https://chromewebstore.google.com/detail/zkpass-transgate/afkoofjocpbclhnldmmaphappihehpma')
+    }
+  }catch(error){
+    console.log('transgate error', error)
   }
+}
   
 ```
 
