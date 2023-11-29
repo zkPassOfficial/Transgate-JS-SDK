@@ -68,6 +68,21 @@ const requestVerifyMessage = async () =>{
 | taskId                        | Unique id of the task allocated by the allocator node               |                               
 | uHash                         | Hash value of user unique id in the data source                     |
 | validatorAddress              | The address of the validator node                                   |                               
-| validatorSignature            | The signature of the verification result by the allocator node      |                               
+| validatorSignature            | The signature of the verification result by the allocator node      |   
+
+### Error code
+
+| Error Code         | Description                      | 
+| ------------------ | -------------------------------- |
+| 100000             | ILLEGAL_NODE                     |
+| 100001             | TRANSGATE_NOT_EXIST              |
+| 100002             | APPID_ERROR                      |                               
+| 100003             | SCHEMA_ID_NOT_EXIST              |                               
+| 100004             | SCHEMA_NOT_EXIST                 |                               
+| 100005             | CONNECT_ERROR                    |
+| 100006             | TASK_RPC_ERROR                   |                               
+| 100011             | NOT_MATCH_REQUIREMENTS           |  
+| 100012             | WINDOW_CLOSE_ERROR               |  
+
 
 

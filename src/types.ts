@@ -1,3 +1,9 @@
+export enum EventDataType{
+  'GENERATE_ZKP_SUCCESS',
+  'NOT_MATCH_REQUIREMENTS',
+  'ILLEGAL_WINDOW_CLOSING',
+}
+
 export interface TaskConfig {
   schemas: { [key: string]: string };
   taskRPC: string;

@@ -1,6 +1,7 @@
 import Web3, { Address } from 'web3';
 import { server, devServer, extensionId } from './constants';
-import { Result, Task, TaskConfig, VerifyResult } from './types';
+import { EventDataType, Result, Task, TaskConfig, VerifyResult } from './types';
+import TransgateError, { ErrorCode } from './error';
 
 export default class TransgateConnect {
   readonly appid: string;
@@ -10,16 +11,16 @@ export default class TransgateConnect {
     this.appid = appid;
     this.baseServer = isDevelopMode ? devServer : server;
   }
-  
+
   async launch(schemaId: string, address?: Address) {
     const transgateAvailable = await this.isTransgateAvailable();
     if (!transgateAvailable) {
-      throw 'Please install transgate before generate proof';
+      throw new TransgateError(ErrorCode.TRANSGATE_NOT_EXIST, 'Please install transgate before generate proof.');
     }
 
     const config = await this.requestConfig();
     if (!config.schemas[schemaId]) {
-      throw 'Illegal schema id, please check your schema info!';
+      throw new TransgateError(ErrorCode.SCHEMA_ID_NOT_EXIST, 'Illegal schema id, please check your schema info');
     }
 
     const schemaInfo = await this.requestSchemaInfo(config.schemas[schemaId]);
@@ -33,7 +34,7 @@ export default class TransgateConnect {
 
     return new Promise((resolve, reject) => {
       const eventListener = (event: any) => {
-        if (event.data.type == 'GENERATE_ZKP_SUCCESS') {
+        if (event.data.type == EventDataType.GENERATE_ZKP_SUCCESS) {
           window?.removeEventListener('message', eventListener);
           const message: VerifyResult = event.data;
           const { taskId, nullifierHash, publicFields = [], signature } = message;
@@ -43,8 +44,19 @@ export default class TransgateConnect {
           if (this.verifyMessageSignature(taskId, schemaId, nullifierHash, publicData, signature, task.nodeAddress)) {
             resolve(this.buildResult(message, task, publicData, config.allocatorAddress));
           } else {
-            reject('verify message error');
+            reject(
+              new TransgateError(
+                ErrorCode.ILLEGAL_NODE,
+                'The verification node is not the same as the node assigned to the task.',
+              ),
+            );
           }
+        } else if (event.data.type == EventDataType.NOT_MATCH_REQUIREMENTS) {
+          reject(new TransgateError(ErrorCode.NOT_MATCH_REQUIREMENTS, 'The user does not meet the requirements.'));
+        } else if (event.data.type == EventDataType.ILLEGAL_WINDOW_CLOSING) {
+          reject(
+            new TransgateError(ErrorCode.WINDOW_CLOSE_ERROR, 'The user closes the window before finishing validation.'),
+          );
         }
       };
       window?.addEventListener('message', eventListener);
@@ -81,7 +93,7 @@ export default class TransgateConnect {
       return await response.json();
     }
 
-    throw `Request task info error`;
+    throw new TransgateError(ErrorCode.TASK_RPC_ERROR, 'Request task info error');
   }
 
   private async requestConfig(): Promise<TaskConfig> {
@@ -95,7 +107,7 @@ export default class TransgateConnect {
       return await response.json();
     }
 
-    throw `Please check your rpc and appid`;
+    throw new TransgateError(ErrorCode.APPID_ERROR, 'Please check your appid');
   }
   /**
    * request schema detail info
@@ -106,7 +118,7 @@ export default class TransgateConnect {
     if (response.ok) {
       return await response.json();
     }
-    throw 'Illegal schema url, please contact develop team!';
+    throw new TransgateError(ErrorCode.SCHEMA_NOT_EXIST, 'Illegal schema url, please contact develop team!');
   }
 
   private async isTransgateAvailable() {
@@ -152,7 +164,7 @@ export default class TransgateConnect {
     const nodeAddress = web3.eth.accounts.recover(JSON.stringify(messageStruct), signature);
     return nodeAddress === originAddress;
   }
-  private buildResult(data: VerifyResult, taskInfo: Task, publicData: string, allocatorAddress:string): Result {
+  private buildResult(data: VerifyResult, taskInfo: Task, publicData: string, allocatorAddress: string): Result {
     const { publicFields, taskId, nullifierHash, signature } = data;
     const { nodeAddress, allocSignature } = taskInfo;
     const publicFieldsHash = (
