@@ -75,14 +75,11 @@ const requestVerifyMessage = async () =>{
 | Error Code         | Description                      | 
 | ------------------ | -------------------------------- |
 | 100000             | ILLEGAL_NODE                     |
-| 100001             | TRANSGATE_NOT_EXIST              |
-| 100002             | APPID_ERROR                      |                               
-| 100003             | SCHEMA_ID_NOT_EXIST              |                               
-| 100004             | SCHEMA_NOT_EXIST                 |                               
-| 100005             | CONNECT_ERROR                    |
-| 100006             | TASK_RPC_ERROR                   |                               
-| 100011             | NOT_MATCH_REQUIREMENTS           |  
-| 100012             | WINDOW_CLOSE_ERROR               |  
-
-
-
+| 100001             | TRANSGATE_NOT_INSTALLED          |
+| 100002             | ILLEGAL_APPID                    |                               
+| 100003             | ILLEGAL_SCHEMA_ID                |                               
+| 100004             | TASK_RPC_ERROR                   |                               
+| 100005             | CONNECT_NODE_ERROR               |
+| 110001             | NOT_MATCH_REQUIREMENTS           |  
+| 110002             | VERIFICATION_CANCELED            |
+| 110003             | UNEXPECTED_VERIFY_ERROR          |  

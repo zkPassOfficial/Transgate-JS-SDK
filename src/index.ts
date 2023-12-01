@@ -15,12 +15,12 @@ export default class TransgateConnect {
   async launch(schemaId: string, address?: Address) {
     const transgateAvailable = await this.isTransgateAvailable();
     if (!transgateAvailable) {
-      throw new TransgateError(ErrorCode.TRANSGATE_NOT_EXIST, 'Please install transgate before generate proof.');
+      throw new TransgateError(ErrorCode.TRANSGATE_NOT_INSTALLED, 'Please install transgate before generate proof.');
     }
 
     const config = await this.requestConfig();
     if (!config.schemas[schemaId]) {
-      throw new TransgateError(ErrorCode.SCHEMA_ID_NOT_EXIST, 'Illegal schema id, please check your schema info');
+      throw new TransgateError(ErrorCode.ILLEGAL_APPID, 'Illegal schema id, please check your schema info');
     }
 
     const schemaInfo = await this.requestSchemaInfo(config.schemas[schemaId]);
@@ -34,6 +34,9 @@ export default class TransgateConnect {
 
     return new Promise((resolve, reject) => {
       const eventListener = (event: any) => {
+        if (event.data.id !== extensionParams.id) {
+          return;
+        }
         if (event.data.type == EventDataType.GENERATE_ZKP_SUCCESS) {
           window?.removeEventListener('message', eventListener);
           const message: VerifyResult = event.data;
@@ -55,7 +58,7 @@ export default class TransgateConnect {
           reject(new TransgateError(ErrorCode.NOT_MATCH_REQUIREMENTS, 'The user does not meet the requirements.'));
         } else if (event.data.type == EventDataType.ILLEGAL_WINDOW_CLOSING) {
           reject(
-            new TransgateError(ErrorCode.WINDOW_CLOSE_ERROR, 'The user closes the window before finishing validation.'),
+            new TransgateError(ErrorCode.VERIFICATION_CANCELED, 'The user closes the window before finishing validation.'),
           );
         }
       };
@@ -107,7 +110,7 @@ export default class TransgateConnect {
       return await response.json();
     }
 
-    throw new TransgateError(ErrorCode.APPID_ERROR, 'Please check your appid');
+    throw new TransgateError(ErrorCode.ILLEGAL_APPID, 'Please check your appid');
   }
   /**
    * request schema detail info
@@ -118,7 +121,7 @@ export default class TransgateConnect {
     if (response.ok) {
       return await response.json();
     }
-    throw new TransgateError(ErrorCode.SCHEMA_NOT_EXIST, 'Illegal schema url, please contact develop team!');
+    throw new TransgateError(ErrorCode.ILLEGAL_SCHEMA_ID, 'Illegal schema url, please contact develop team!');
   }
 
   private async isTransgateAvailable() {
