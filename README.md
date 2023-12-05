@@ -34,14 +34,14 @@ import TransgateConnect from 'transgate-js-sdk'
 
 const requestVerifyMessage = async () =>{
   try{
-    const appid = "7af1d0768b8a4099f4d0212e0ee6193" //Locate this form on the development platform
+    const appid = "8fb9d43c-2f24-424e-a98d-7ba34a5532f5" //Locate this form on the development platform
 
-    const transgate = new TransgateConnect(appid, true)
+    const transgate = new TransgateConnect(appid)
     const isAvailable = await transgate.isTransgateAvailable()
 
     if(isAvailable){
       //The schema ID that you add for the project
-      const schemaId = "0x280e70807f080458b3d1016d56a1eb7137af1d0768b8a4099f4d0212e0ee6193"
+      const schemaId = "516a720e-29a4-4307-ae7b-5aec286e446e"
 
       const res = await transgate.launch(schemaId)// This method can be invoked in a loop when dealing with multiple schemas
 

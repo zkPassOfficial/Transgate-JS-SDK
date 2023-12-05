@@ -1,31 +1,31 @@
-export enum EventDataType{
-  'GENERATE_ZKP_SUCCESS',
-  'NOT_MATCH_REQUIREMENTS',
-  'ILLEGAL_WINDOW_CLOSING',
+export enum EventDataType {
+  "GENERATE_ZKP_SUCCESS" = "GENERATE_ZKP_SUCCESS",
+  "NOT_MATCH_REQUIREMENTS" = "NOT_MATCH_REQUIREMENTS",
+  "ILLEGAL_WINDOW_CLOSING" = "ILLEGAL_WINDOW_CLOSING",
 }
 
 export interface TaskConfig {
-  schemas: { [key: string]: string };
-  taskRPC: string;
-  token: string;
-  allocatorAddress: string;
+  schemas: { schema_id: string }[]
+  task_rpc: string
+  token: string
 }
 
 export interface Task {
-  task: string;
-  nodeAddress: string;
-  nodeHost: string;
-  nodePort: number;
-  nodePK: string;
-  allocSignature: string;
+  task: string
+  node_address: string
+  node_host: string
+  node_port: number
+  node_pk: string
+  alloc_address: string
+  alloc_signature: string
 }
 
 export interface VerifyResult {
-  nullifierHash: string;
-  publicFields: any[];
-  signature: string;
-  taskId: string;
-  type: string;
+  nullifierHash: string
+  publicFields: any[]
+  signature: string
+  taskId: string
+  type: string
 }
 
 export interface Result {
@@ -37,4 +37,4 @@ export interface Result {
   uHash: string
   validatorAddress: string
   validatorSignature: string
-} 
+}

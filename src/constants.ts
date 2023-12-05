@@ -1,5 +1,3 @@
-export const server = 'https://backend.zkpass.org'
+export const server = 'https://dev.zkpass.org/v1';
 
-export const devServer = 'https://backend3.zkpass.org'
-
-export const extensionId = 'afkoofjocpbclhnldmmaphappihehpma'
+export const extensionId = 'afkoofjocpbclhnldmmaphappihehpma';

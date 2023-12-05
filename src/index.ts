@@ -1,5 +1,5 @@
 import Web3, { Address } from 'web3';
-import { server, devServer, extensionId } from './constants';
+import { server, extensionId } from './constants';
 import { EventDataType, Result, Task, TaskConfig, VerifyResult } from './types';
 import TransgateError, { ErrorCode } from './error';
 
@@ -7,9 +7,9 @@ export default class TransgateConnect {
   readonly appid: string;
   readonly baseServer: string;
   transgateAvailable?: boolean;
-  constructor(appid: string, isDevelopMode?: boolean) {
+  constructor(appid: string) {
     this.appid = appid;
-    this.baseServer = isDevelopMode ? devServer : server;
+    this.baseServer = server;
   }
 
   async launch(schemaId: string, address?: Address) {
@@ -19,22 +19,40 @@ export default class TransgateConnect {
     }
 
     const config = await this.requestConfig();
-    if (!config.schemas[schemaId]) {
+    if (config.schemas.findIndex((schema) => schema.schema_id === schemaId) === -1) {
       throw new TransgateError(ErrorCode.ILLEGAL_APPID, 'Illegal schema id, please check your schema info');
     }
 
-    const schemaInfo = await this.requestSchemaInfo(config.schemas[schemaId]);
-    const task = await this.requestTaskInfo(config.taskRPC, config.token, schemaId);
+    const schemaUrl = `${this.baseServer}/schema/${schemaId}`;
+
+    const schemaInfo = await this.requestSchemaInfo(schemaUrl);
+    const taskInfo = await this.requestTaskInfo(config.task_rpc, config.token, schemaId);
+    const {
+      task,
+      alloc_address: allocatorAddress,
+      alloc_signature: signature,
+      node_address: nodeAddress,
+      node_host: nodeHost,
+      node_port: nodePort,
+      node_pk: nodePK,
+    } = taskInfo;
     const extensionParams = {
-      ...task,
+      task,
+      allocatorAddress,
+      nodeAddress,
+      nodeHost,
+      nodePort,
+      nodePK,
+      signature,
       ...schemaInfo,
+      appid: this.appid,
     };
 
     this.launchTransgate(extensionParams, address);
 
     return new Promise((resolve, reject) => {
       const eventListener = (event: any) => {
-        if (event.data.id !== extensionParams.id) {
+        if (event.data.taskId !== extensionParams.task) {
           return;
         }
         if (event.data.type == EventDataType.GENERATE_ZKP_SUCCESS) {
@@ -44,8 +62,8 @@ export default class TransgateConnect {
           const publicFieldsList = publicFields.map((item: any) => item.str);
           let publicData = publicFieldsList.length > 0 ? publicFieldsList.reduce((a: string, b: string) => a + b) : '';
 
-          if (this.verifyMessageSignature(taskId, schemaId, nullifierHash, publicData, signature, task.nodeAddress)) {
-            resolve(this.buildResult(message, task, publicData, config.allocatorAddress));
+          if (this.verifyMessageSignature(taskId, schemaId, nullifierHash, publicData, signature, nodeAddress)) {
+            resolve(this.buildResult(message, taskInfo, publicData, allocatorAddress));
           } else {
             reject(
               new TransgateError(
@@ -58,7 +76,10 @@ export default class TransgateConnect {
           reject(new TransgateError(ErrorCode.NOT_MATCH_REQUIREMENTS, 'The user does not meet the requirements.'));
         } else if (event.data.type == EventDataType.ILLEGAL_WINDOW_CLOSING) {
           reject(
-            new TransgateError(ErrorCode.VERIFICATION_CANCELED, 'The user closes the window before finishing validation.'),
+            new TransgateError(
+              ErrorCode.VERIFICATION_CANCELED,
+              'The user closes the window before finishing validation.',
+            ),
           );
         }
       };
@@ -83,31 +104,38 @@ export default class TransgateConnect {
    * @returns
    */
   private async requestTaskInfo(taskUrl: string, token: string, schemaId: string): Promise<Task> {
-    const response = await fetch(`https://${taskUrl}?token=${token}`, {
+    const response = await fetch(`https://${taskUrl}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        schemaId,
+        token,
+        schema_id: schemaId,
+        app_id: this.appid,
       }),
     });
     if (response.ok) {
-      return await response.json();
+      const result = await response.json();
+      return result.info;
     }
 
     throw new TransgateError(ErrorCode.TASK_RPC_ERROR, 'Request task info error');
   }
 
   private async requestConfig(): Promise<TaskConfig> {
-    const response = await fetch(`${this.baseServer}/sdk/config?${new URLSearchParams({ appid: this.appid })}`, {
-      method: 'GET',
+    const response = await fetch(`${this.baseServer}/sdk/config`, {
+      method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
+      body: JSON.stringify({
+        app_id: this.appid,
+      }),
     });
     if (response.ok) {
-      return await response.json();
+      const result = await response.json();
+      return result.info;
     }
 
     throw new TransgateError(ErrorCode.ILLEGAL_APPID, 'Please check your appid');
@@ -169,7 +197,7 @@ export default class TransgateConnect {
   }
   private buildResult(data: VerifyResult, taskInfo: Task, publicData: string, allocatorAddress: string): Result {
     const { publicFields, taskId, nullifierHash, signature } = data;
-    const { nodeAddress, allocSignature } = taskInfo;
+    const { node_address: nodeAddress, alloc_signature: allocSignature } = taskInfo;
     const publicFieldsHash = (
       !!publicData ? Web3.utils.soliditySha3(Web3.utils.stringToHex(publicData)) : Web3.utils.utf8ToHex('1')
     ) as string;
