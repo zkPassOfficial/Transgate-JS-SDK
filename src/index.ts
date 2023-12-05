@@ -52,7 +52,7 @@ export default class TransgateConnect {
 
     return new Promise((resolve, reject) => {
       const eventListener = (event: any) => {
-        if (event.data.taskId !== extensionParams.task) {
+        if (event.data.id !== extensionParams.id) {
           return;
         }
         if (event.data.type == EventDataType.GENERATE_ZKP_SUCCESS) {
@@ -79,6 +79,13 @@ export default class TransgateConnect {
             new TransgateError(
               ErrorCode.VERIFICATION_CANCELED,
               'The user closes the window before finishing validation.',
+            ),
+          );
+        } else if (event.data.type == EventDataType.UNEXPECTED_VERIFY_ERROR) {
+          reject(
+            new TransgateError(
+              ErrorCode.UNEXPECTED_VERIFY_ERROR,
+              'An unexpected error was encountered, please try again.',
             ),
           );
         }

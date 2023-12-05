@@ -7,6 +7,7 @@ export enum ErrorCode {
   'CONNECT_NODE_ERROR' = 100005,
   'NOT_MATCH_REQUIREMENTS' = 110001,
   'VERIFICATION_CANCELED' = 110002,
+  'UNEXPECTED_VERIFY_ERROR' = 110003,
 }
 
 export default class TransgateError {
