@@ -83,6 +83,14 @@ export default class TransgateConnect {
               'The user closes the window before finishing validation.',
             ),
           );
+        } else if (event.data.type == EventDataType.UNEXPECTED_VERIFY_ERROR) {
+          window?.removeEventListener('message', eventListener);
+          reject(
+            new TransgateError(
+              ErrorCode.UNEXPECTED_VERIFY_ERROR,
+              'An unexpected error was encountered, please try again.',
+            ),
+          );
         }
       };
       window?.addEventListener('message', eventListener);
