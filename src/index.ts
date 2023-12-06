@@ -73,19 +73,14 @@ export default class TransgateConnect {
             );
           }
         } else if (event.data.type == EventDataType.NOT_MATCH_REQUIREMENTS) {
+          window?.removeEventListener('message', eventListener);
           reject(new TransgateError(ErrorCode.NOT_MATCH_REQUIREMENTS, 'The user does not meet the requirements.'));
         } else if (event.data.type == EventDataType.ILLEGAL_WINDOW_CLOSING) {
+          window?.removeEventListener('message', eventListener);
           reject(
             new TransgateError(
               ErrorCode.VERIFICATION_CANCELED,
               'The user closes the window before finishing validation.',
-            ),
-          );
-        } else if (event.data.type == EventDataType.UNEXPECTED_VERIFY_ERROR) {
-          reject(
-            new TransgateError(
-              ErrorCode.UNEXPECTED_VERIFY_ERROR,
-              'An unexpected error was encountered, please try again.',
             ),
           );
         }
