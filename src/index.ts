@@ -20,7 +20,7 @@ export default class TransgateConnect {
 
     const config = await this.requestConfig();
     if (config.schemas.findIndex((schema) => schema.schema_id === schemaId) === -1) {
-      throw new TransgateError(ErrorCode.ILLEGAL_APPID, 'Illegal schema id, please check your schema info');
+      throw new TransgateError(ErrorCode.ILLEGAL_SCHEMA_ID, 'Illegal schema id, please check your schema info');
     }
 
     const schemaUrl = `${this.baseServer}/schema/${schemaId}`;
@@ -191,10 +191,8 @@ export default class TransgateConnect {
   ) {
     const web3 = new Web3();
 
-    const publicFieldsHash = !!publicData
-      ? Web3.utils.soliditySha3(Web3.utils.stringToHex(publicData))
-      : Web3.utils.utf8ToHex('1');
-
+    const publicFieldsHex = !!publicData ? Web3.utils.stringToHex(publicData) : Web3.utils.utf8ToHex('1');
+    const publicFieldsHash = Web3.utils.soliditySha3(publicFieldsHex);
     const messageStruct = {
       taskId,
       schemaId,
@@ -208,8 +206,8 @@ export default class TransgateConnect {
   private buildResult(data: VerifyResult, taskInfo: Task, publicData: string, allocatorAddress: string): Result {
     const { publicFields, taskId, nullifierHash, signature } = data;
     const { node_address: nodeAddress, alloc_signature: allocSignature } = taskInfo;
-    const publicFieldsHash = (
-      !!publicData ? Web3.utils.soliditySha3(Web3.utils.stringToHex(publicData)) : Web3.utils.utf8ToHex('1')
+    const publicFieldsHash = Web3.utils.soliditySha3(
+      !!publicData ? Web3.utils.stringToHex(publicData) : Web3.utils.utf8ToHex('1'),
     ) as string;
 
     return {
