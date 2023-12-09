@@ -10,7 +10,7 @@ The Transgate JS-SDK is a utility package for [Transgate](https://chromewebstore
 
 ## Register an develop account
 
-Please register an account on the [zkPass Dev Center](https://dev.zkapss.org/dashboard) and create a project. Then you can add schemas for your project.
+Please register an account on the [zkPass Dev Center](https://dev.zkpass.org) and create a project. Then you can add schemas for your project.
 
 ## Installation
 
@@ -68,7 +68,7 @@ const requestVerifyMessage = async () =>{
 | taskId                        | Unique id of the task allocated by the allocator node               |                               
 | uHash                         | Hash value of user unique id in the data source                     |
 | validatorAddress              | The address of the validator node                                   |                               
-| validatorSignature            | The signature of the verification result by the allocator node      |   
+| validatorSignature            | The signature of the verification result by the validator node      |   
 
 ### Error code
 
