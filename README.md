@@ -36,14 +36,14 @@ const requestVerifyMessage = async () =>{
   try{
     const appid = "8fb9d43c-2f24-424e-a98d-7ba34a5532f5" //Locate this form on the development platform
 
-    const transgate = new TransgateConnect(appid)
-    const isAvailable = await transgate.isTransgateAvailable()
+    const connector = new TransgateConnect(appid)
+    const isAvailable = await connector.isTransgateAvailable()
 
     if(isAvailable){
       //The schema ID that you add for the project
       const schemaId = "516a720e-29a4-4307-ae7b-5aec286e446e"
 
-      const res = await transgate.launch(schemaId)// This method can be invoked in a loop when dealing with multiple schemas
+      const res = await connector.launch(schemaId)// This method can be invoked in a loop when dealing with multiple schemas
 
       //You have the flexibility to handle the validation results based on your requirements.        
 

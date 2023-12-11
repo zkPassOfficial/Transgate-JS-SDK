@@ -193,14 +193,13 @@ export default class TransgateConnect {
 
     const publicFieldsHex = !!publicData ? Web3.utils.stringToHex(publicData) : Web3.utils.utf8ToHex('1');
     const publicFieldsHash = Web3.utils.soliditySha3(publicFieldsHex);
-    const messageStruct = {
-      taskId,
-      schemaId,
-      uHash: nullifier,
-      publicFieldsHash,
-    };
 
-    const nodeAddress = web3.eth.accounts.recover(JSON.stringify(messageStruct), signature);
+    const encodeParams = web3.eth.abi.encodeParameters(
+      ['bytes32', 'bytes32', 'bytes32', 'bytes32'],
+      [Web3.utils.stringToHex(taskId), Web3.utils.stringToHex(schemaId), nullifier, publicFieldsHash],
+    );
+    console.log('encodeParams', encodeParams);
+    const nodeAddress = web3.eth.accounts.recover(encodeParams, signature);
     return nodeAddress === originAddress;
   }
   private buildResult(data: VerifyResult, taskInfo: Task, publicData: string, allocatorAddress: string): Result {
