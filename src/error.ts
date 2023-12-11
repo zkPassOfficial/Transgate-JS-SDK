@@ -10,7 +10,7 @@ export enum ErrorCode {
   'UNEXPECTED_VERIFY_ERROR' = 110003,
 }
 
-export default class TransgateError {
+export class TransgateError {
   code: number;
   message: string;
   constructor(code: ErrorCode, message: string) {

@@ -1,7 +1,7 @@
 import Web3, { Address } from 'web3';
 import { server, extensionId } from './constants';
 import { EventDataType, Result, Task, TaskConfig, VerifyResult } from './types';
-import TransgateError, { ErrorCode } from './error';
+import { ErrorCode, TransgateError} from './error';
 
 export default class TransgateConnect {
   readonly appid: string;
@@ -55,12 +55,13 @@ export default class TransgateConnect {
         if (event.data.id !== extensionParams.id) {
           return;
         }
-        if (event.data.type == EventDataType.GENERATE_ZKP_SUCCESS) {
+        if (event.data.type === EventDataType.GENERATE_ZKP_SUCCESS) {
           window?.removeEventListener('message', eventListener);
           const message: VerifyResult = event.data;
           const { taskId, nullifierHash, publicFields = [], signature } = message;
           const publicFieldsList = publicFields.map((item: any) => item.str);
-          let publicData = publicFieldsList.length > 0 ? publicFieldsList.reduce((a: string, b: string) => a + b) : '';
+          const publicData =
+            publicFieldsList.length > 0 ? publicFieldsList.reduce((a: string, b: string) => a + b) : '';
 
           if (this.verifyMessageSignature(taskId, schemaId, nullifierHash, publicData, signature, nodeAddress)) {
             resolve(this.buildResult(message, taskInfo, publicData, allocatorAddress));
@@ -72,10 +73,10 @@ export default class TransgateConnect {
               ),
             );
           }
-        } else if (event.data.type == EventDataType.NOT_MATCH_REQUIREMENTS) {
+        } else if (event.data.type === EventDataType.NOT_MATCH_REQUIREMENTS) {
           window?.removeEventListener('message', eventListener);
           reject(new TransgateError(ErrorCode.NOT_MATCH_REQUIREMENTS, 'The user does not meet the requirements.'));
-        } else if (event.data.type == EventDataType.ILLEGAL_WINDOW_CLOSING) {
+        } else if (event.data.type === EventDataType.ILLEGAL_WINDOW_CLOSING) {
           window?.removeEventListener('message', eventListener);
           reject(
             new TransgateError(
@@ -83,7 +84,7 @@ export default class TransgateConnect {
               'The user closes the window before finishing validation.',
             ),
           );
-        } else if (event.data.type == EventDataType.UNEXPECTED_VERIFY_ERROR) {
+        } else if (event.data.type === EventDataType.UNEXPECTED_VERIFY_ERROR) {
           window?.removeEventListener('message', eventListener);
           reject(
             new TransgateError(
@@ -165,7 +166,7 @@ export default class TransgateConnect {
   private async isTransgateAvailable() {
     const url = `chrome-extension://${extensionId}/images/icon-16.png`;
     const { statusText } = await fetch(url);
-    if (statusText == 'OK') {
+    if (statusText === 'OK') {
       this.transgateAvailable = true;
       return true;
     }
@@ -198,8 +199,10 @@ export default class TransgateConnect {
       ['bytes32', 'bytes32', 'bytes32', 'bytes32'],
       [Web3.utils.stringToHex(taskId), Web3.utils.stringToHex(schemaId), nullifier, publicFieldsHash],
     );
-    console.log('encodeParams', encodeParams);
-    const nodeAddress = web3.eth.accounts.recover(encodeParams, signature);
+
+    const paramsHash = Web3.utils.soliditySha3(encodeParams) as string
+    
+    const nodeAddress = web3.eth.accounts.recover(paramsHash, signature);
     return nodeAddress === originAddress;
   }
   private buildResult(data: VerifyResult, taskInfo: Task, publicData: string, allocatorAddress: string): Result {
@@ -211,10 +214,10 @@ export default class TransgateConnect {
 
     return {
       taskId,
+      publicFields,
       allocatorAddress,
+      publicFieldsHash,
       allocatorSignature: allocSignature,
-      publicFields: publicFields,
-      publicFieldsHash: publicFieldsHash,
       uHash: nullifierHash,
       validatorAddress: nodeAddress,
       validatorSignature: signature,
