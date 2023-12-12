@@ -1,6 +1,6 @@
 {
   "name": "transgate-js-sdk",
-  "version": "0.2.1",
+  "version": "0.4.0",
   "description": "",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",

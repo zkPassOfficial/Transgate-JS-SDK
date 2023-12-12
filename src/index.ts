@@ -164,13 +164,17 @@ export default class TransgateConnect {
   }
 
   async isTransgateAvailable() {
-    const url = `chrome-extension://${extensionId}/images/icon-16.png`;
-    const { statusText } = await fetch(url);
-    if (statusText === 'OK') {
-      this.transgateAvailable = true;
-      return true;
+    try{
+      const url = `chrome-extension://${extensionId}/images/icon-16.png`;
+      const { statusText } = await fetch(url);
+      if (statusText === 'OK') {
+        this.transgateAvailable = true;
+        return true;
+      }
+      return false;
+    }catch(error){
+      return false;
     }
-    return false;
   }
   /**
    * check signature is matched with task info
