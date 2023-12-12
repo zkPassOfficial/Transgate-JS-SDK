@@ -163,7 +163,7 @@ export default class TransgateConnect {
     throw new TransgateError(ErrorCode.ILLEGAL_SCHEMA_ID, 'Illegal schema url, please contact develop team!');
   }
 
-  private async isTransgateAvailable() {
+  async isTransgateAvailable() {
     const url = `chrome-extension://${extensionId}/images/icon-16.png`;
     const { statusText } = await fetch(url);
     if (statusText === 'OK') {
