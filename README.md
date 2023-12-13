@@ -14,23 +14,23 @@ Please register an account on the [zkPass Dev Center](https://dev.zkpass.org) an
 
 ## Installation
 
-You can install the package either using [NPM](https://www.npmjs.com/package/transgate-js-sdk) or using [Yarn](https://yarnpkg.com/package/transgate-js-sdk)
+You can install the package either using [NPM](https://www.npmjs.com/package/@zkpass/transgate-js-sdk) or using [Yarn](https://yarnpkg.com/package/@zkpass/transgate-js-sdk)
 
 ### Using NPM
 
 ```bash
-npm install transgate-js-sdk
+npm install @zkpass/transgate-js-sdk
 ```
 
 ### Using Yarn
 
 ```bash
-yarn add transgate-js-sdk
+yarn add  @zkpass/transgate-js-sdk
 ```
 
 ### Example
 ```bash
-import TransgateConnect from '@zkPass/transgate-js-sdk'
+import TransgateConnect from '@zkpass/transgate-js-sdk'
 
 const requestVerifyMessage = async () =>{
   try{
