@@ -30,7 +30,7 @@ yarn add transgate-js-sdk
 
 ### Example
 ```bash
-import TransgateConnect from 'transgate-js-sdk'
+import TransgateConnect from '@zkPass/transgate-js-sdk'
 
 const requestVerifyMessage = async () =>{
   try{
