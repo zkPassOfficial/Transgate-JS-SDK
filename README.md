@@ -8,6 +8,8 @@
 
 The Transgate JS-SDK is a utility package for [Transgate](https://chromewebstore.google.com/detail/zkpass-transgate/afkoofjocpbclhnldmmaphappihehpma) that enables developers to easily launch Transgate.
 
+Check out our docs for [step-by-step instructions!](https://zkpass.gitbook.io/zkpass/extension-js-sdk/quick-start)
+
 ## Register an develop account
 
 Please register an account on the [zkPass Dev Center](https://dev.zkpass.org) and create a project. Then you can add schemas for your project.
