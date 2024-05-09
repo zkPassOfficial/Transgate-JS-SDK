@@ -38,4 +38,5 @@ export interface Result {
   uHash: string;
   validatorAddress: string;
   validatorSignature: string;
+  recipient?: string;
 }

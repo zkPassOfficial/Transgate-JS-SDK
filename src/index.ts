@@ -1,7 +1,7 @@
 import Web3, { Address } from 'web3';
 import { server, extensionId } from './constants';
 import { EventDataType, Result, Task, TaskConfig, VerifyResult } from './types';
-import { ErrorCode, TransgateError} from './error';
+import { ErrorCode, TransgateError } from './error';
 
 export default class TransgateConnect {
   readonly appid: string;
@@ -33,15 +33,13 @@ export default class TransgateConnect {
       alloc_signature: signature,
       node_address: nodeAddress,
       node_host: nodeHost,
-      node_port: nodePort,
       node_pk: nodePK,
-    } = taskInfo;
+    } = taskInfo;    
     const extensionParams = {
       task,
       allocatorAddress,
       nodeAddress,
       nodeHost,
-      nodePort,
       nodePK,
       signature,
       ...schemaInfo,
@@ -63,8 +61,10 @@ export default class TransgateConnect {
           const publicData =
             publicFieldsList.length > 0 ? publicFieldsList.reduce((a: string, b: string) => a + b) : '';
 
-          if (this.verifyMessageSignature(taskId, schemaId, nullifierHash, publicData, signature, nodeAddress)) {
-            resolve(this.buildResult(message, taskInfo, publicData, allocatorAddress));
+          if (
+            this.verifyMessageSignature(taskId, schemaId, nullifierHash, publicData, signature, nodeAddress, address)
+          ) {
+            resolve(this.buildResult(message, taskInfo, publicData, allocatorAddress, address));
           } else {
             reject(
               new TransgateError(
@@ -164,7 +164,7 @@ export default class TransgateConnect {
   }
 
   async isTransgateAvailable() {
-    try{
+    try {
       const url = `chrome-extension://${extensionId}/images/icon-16.png`;
       const { statusText } = await fetch(url);
       if (statusText === 'OK') {
@@ -172,7 +172,7 @@ export default class TransgateConnect {
         return true;
       }
       return false;
-    }catch(error){
+    } catch (error) {
       return false;
     }
   }
@@ -193,23 +193,35 @@ export default class TransgateConnect {
     publicData: string,
     signature: string,
     originAddress: string,
+    recipient?: string,
   ) {
     const web3 = new Web3();
 
     const publicFieldsHex = !!publicData ? Web3.utils.stringToHex(publicData) : Web3.utils.utf8ToHex('1');
     const publicFieldsHash = Web3.utils.soliditySha3(publicFieldsHex);
 
-    const encodeParams = web3.eth.abi.encodeParameters(
-      ['bytes32', 'bytes32', 'bytes32', 'bytes32'],
-      [Web3.utils.stringToHex(taskId), Web3.utils.stringToHex(schemaId), nullifier, publicFieldsHash],
-    );
+    const types = ['bytes32', 'bytes32', 'bytes32', 'bytes32'];
+    const values = [Web3.utils.stringToHex(taskId), Web3.utils.stringToHex(schemaId), nullifier, publicFieldsHash];
 
-    const paramsHash = Web3.utils.soliditySha3(encodeParams) as string
-    
+    if (recipient) {
+      types.push('address');
+      values.push(recipient);
+    }
+
+    const encodeParams = web3.eth.abi.encodeParameters(types, values);
+
+    const paramsHash = Web3.utils.soliditySha3(encodeParams) as string;
+
     const nodeAddress = web3.eth.accounts.recover(paramsHash, signature);
     return nodeAddress === originAddress;
   }
-  private buildResult(data: VerifyResult, taskInfo: Task, publicData: string, allocatorAddress: string): Result {
+  private buildResult(
+    data: VerifyResult,
+    taskInfo: Task,
+    publicData: string,
+    allocatorAddress: string,
+    recipient?: string,
+  ): Result {
     const { publicFields, taskId, nullifierHash, signature } = data;
     const { node_address: nodeAddress, alloc_signature: allocSignature } = taskInfo;
     const publicFieldsHash = Web3.utils.soliditySha3(
@@ -225,6 +237,7 @@ export default class TransgateConnect {
       uHash: nullifierHash,
       validatorAddress: nodeAddress,
       validatorSignature: signature,
+      recipient,
     };
   }
 }
