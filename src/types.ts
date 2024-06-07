@@ -5,6 +5,8 @@ export enum EventDataType {
   'UNEXPECTED_VERIFY_ERROR' = 'UNEXPECTED_VERIFY_ERROR',
 }
 
+export declare type ChainType = 'evm' | 'sol'
+
 export interface TaskConfig {
   schemas: { schema_id: string }[];
   task_rpc: string;
@@ -27,6 +29,16 @@ export interface VerifyResult {
   signature: string;
   taskId: string;
   type: string;
+}
+
+export interface SolVerifyParams {
+  taskId: string
+  schema: string
+  uHash: string
+  validatorSignature: string
+  validatorAddress: string
+  publicFieldsHash: string
+  recipient: string
 }
 
 export interface Result {

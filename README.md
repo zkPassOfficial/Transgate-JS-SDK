@@ -70,7 +70,8 @@ const requestVerifyMessage = async () =>{
 | taskId                        | Unique id of the task allocated by the allocator node               |                               
 | uHash                         | Hash value of user unique id in the data source                     |
 | validatorAddress              | The address of the validator node                                   |                               
-| validatorSignature            | The signature of the verification result by the validator node      |   
+| validatorSignature            | The signature of the verification result by the validator node      |
+| recipient                     | The address of the user                                             |   
 
 ### Error code
 
@@ -82,6 +83,7 @@ const requestVerifyMessage = async () =>{
 | 100003             | ILLEGAL_SCHEMA_ID                |                               
 | 100004             | TASK_RPC_ERROR                   |                               
 | 100005             | CONNECT_NODE_ERROR               |
+| 100006             | ILLEGAL_TASK_INFO                |
 | 110001             | NOT_MATCH_REQUIREMENTS           |  
 | 110002             | VERIFICATION_CANCELED            |
 | 110003             | UNEXPECTED_VERIFY_ERROR          |  

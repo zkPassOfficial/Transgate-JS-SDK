@@ -1,7 +1,14 @@
 import Web3, { Address } from 'web3';
-import { server, extensionId } from './constants';
-import { EventDataType, Result, Task, TaskConfig, VerifyResult } from './types';
+import { Buffer } from 'buffer';
+import secp256k1 from 'secp256k1';
+import * as borsh from 'borsh';
+import sha3 from 'js-sha3';
+
+import { server, extensionId, SolanaTaskAllocator, EVMTaskAllocator } from './constants';
+import { EventDataType, Result, Task, TaskConfig, SolVerifyParams, VerifyResult, ChainType } from './types';
 import { ErrorCode, TransgateError } from './error';
+import { Attest, SolanaTask } from './solanaInstruction';
+import { hexToBytes } from './helper';
 
 export default class TransgateConnect {
   readonly appid: string;
@@ -13,6 +20,22 @@ export default class TransgateConnect {
   }
 
   async launch(schemaId: string, address?: Address) {
+    return await this.runTransgate({ schemaId, address, chainType: 'evm' });
+  }
+  
+  async launchWithSolana(schemaId: string, address: string) {
+    return await this.runTransgate({ schemaId, address, chainType: 'sol' });
+  }
+
+  async runTransgate({
+    schemaId,
+    address,
+    chainType = 'evm',
+  }: {
+    schemaId: string;
+    address?: Address;
+    chainType?: ChainType;
+  }) {
     const transgateAvailable = await this.isTransgateAvailable();
     if (!transgateAvailable) {
       throw new TransgateError(ErrorCode.TRANSGATE_NOT_INSTALLED, 'Please install transgate before generate proof.');
@@ -26,7 +49,8 @@ export default class TransgateConnect {
     const schemaUrl = `${this.baseServer}/schema/${schemaId}`;
 
     const schemaInfo = await this.requestSchemaInfo(schemaUrl);
-    const taskInfo = await this.requestTaskInfo(config.task_rpc, config.token, schemaId);
+
+    const taskInfo = await this.requestTaskInfo(config.task_rpc, config.token, schemaId, chainType);
     const {
       task,
       alloc_address: allocatorAddress,
@@ -34,7 +58,8 @@ export default class TransgateConnect {
       node_address: nodeAddress,
       node_host: nodeHost,
       node_pk: nodePK,
-    } = taskInfo;    
+    } = taskInfo;
+
     const extensionParams = {
       task,
       allocatorAddress,
@@ -46,6 +71,10 @@ export default class TransgateConnect {
       appid: this.appid,
     };
 
+    if (!this.checkTaskInfo(chainType, task, schemaId, nodeAddress, signature)) {
+      return new TransgateError(ErrorCode.ILLEGAL_TASK_INFO, 'Please ensure you connected the legitimate task nodes');
+    }
+
     this.launchTransgate(extensionParams, address);
 
     return new Promise((resolve, reject) => {
@@ -56,15 +85,15 @@ export default class TransgateConnect {
         if (event.data.type === EventDataType.GENERATE_ZKP_SUCCESS) {
           window?.removeEventListener('message', eventListener);
           const message: VerifyResult = event.data;
-          const { taskId, nullifierHash, publicFields = [], signature } = message;
+          const { publicFields = [] } = message;
           const publicFieldsList = publicFields.map((item: any) => item.str);
           const publicData =
             publicFieldsList.length > 0 ? publicFieldsList.reduce((a: string, b: string) => a + b) : '';
 
-          if (
-            this.verifyMessageSignature(taskId, schemaId, nullifierHash, publicData, signature, nodeAddress, address)
-          ) {
-            resolve(this.buildResult(message, taskInfo, publicData, allocatorAddress, address));
+          const proofResult = this.buildResult(message, taskInfo, publicData, allocatorAddress, address);
+
+          if (this.verifyProofMessageSignature(chainType, schemaId, proofResult)) {
+            resolve(proofResult);
           } else {
             reject(
               new TransgateError(
@@ -114,7 +143,12 @@ export default class TransgateConnect {
    * @param {*} schemaId string schema id
    * @returns
    */
-  private async requestTaskInfo(taskUrl: string, token: string, schemaId: string): Promise<Task> {
+  private async requestTaskInfo(
+    taskUrl: string,
+    token: string,
+    schemaId: string,
+    chainType: 'evm' | 'sol',
+  ): Promise<Task> {
     const response = await fetch(`https://${taskUrl}`, {
       method: 'POST',
       headers: {
@@ -124,6 +158,7 @@ export default class TransgateConnect {
         token,
         schema_id: schemaId,
         app_id: this.appid,
+        chain_type: chainType,
       }),
     });
     if (response.ok) {
@@ -176,32 +211,102 @@ export default class TransgateConnect {
       return false;
     }
   }
+
+  checkTaskInfo(chainType: ChainType, task: string, schema: string, validatorAddress: string, signature: string) {
+    if (chainType === 'sol') {
+      return this.checkTaskInfoForSolana(task, schema, validatorAddress, signature);
+    }
+
+    const taskHex = Web3.utils.stringToHex(task);
+    const schemaHex = Web3.utils.stringToHex(schema);
+
+    return this.checkTaskInfoForEVM(taskHex, schemaHex, validatorAddress, signature);
+  }
+
+  checkTaskInfoForSolana(task: string, schema: string, validatorAddress: string, signature: string) {
+    const sig_bytes = hexToBytes(signature.slice(2));
+
+    const signatureBytes = sig_bytes.slice(0, 64);
+    const recoverId = Array.from(sig_bytes.slice(64))[0];
+
+    const plaintext = borsh.serialize(SolanaTask, {
+      task: task,
+      schema: schema,
+      notary: validatorAddress,
+    });
+
+    const plaintextHash = Buffer.from(sha3.keccak_256.digest(Buffer.from(plaintext)));
+
+    const address = secp256k1.ecdsaRecover(signatureBytes, recoverId, plaintextHash, false);
+    console.log('address', sha3.keccak_256.hex(address.slice(1)));
+    return SolanaTaskAllocator === sha3.keccak_256.hex(address.slice(1));
+  }
+
+  checkTaskInfoForEVM(task: string, schema: string, validatorAddress: string, signature: string) {
+    const web3 = new Web3();
+
+    const encodeParams = web3.eth.abi.encodeParameters(
+      ['bytes32', 'bytes32', 'address'],
+      [task, schema, validatorAddress],
+    );
+    const paramsHash = Web3.utils.soliditySha3(encodeParams) as string;
+
+    const signedAllocatorAddress = web3.eth.accounts.recover(paramsHash, signature);
+
+    return EVMTaskAllocator === signedAllocatorAddress;
+  }
+
   /**
-   * check signature is matched with task info
-   * @param taskId
-   * @param schemaId
-   * @param nullifier
-   * @param publicData
-   * @param signature
-   * @param originAddress
+   * check the proof result by chain type
+   * @param chainType
+   * @param schema
+   * @param proofResult
    * @returns
    */
-  private verifyMessageSignature(
+  verifyProofMessageSignature(chainType: ChainType, schema: string, proofResult: Result) {
+    const { taskId, publicFieldsHash, uHash, validatorAddress, validatorSignature, recipient } = proofResult;
+
+    const taskHex = Web3.utils.stringToHex(taskId) as string;
+    const schemaHex = Web3.utils.stringToHex(schema) as string;
+
+    if (chainType === 'sol') {
+      const rec = recipient as string;
+
+      return this.verifyMessageSignatureForSolana({
+        taskId,
+        uHash,
+        validatorAddress,
+        schema,
+        validatorSignature,
+        recipient: rec,
+        publicFieldsHash,
+      });
+    }
+
+    return this.verifyEVMMessageSignature(
+      taskHex,
+      schemaHex,
+      uHash,
+      publicFieldsHash,
+      validatorSignature,
+      validatorAddress,
+      recipient,
+    );
+  }
+
+  verifyEVMMessageSignature(
     taskId: string,
-    schemaId: string,
+    schema: string,
     nullifier: string,
-    publicData: string,
+    publicFieldsHash: string,
     signature: string,
     originAddress: string,
     recipient?: string,
   ) {
     const web3 = new Web3();
 
-    const publicFieldsHex = !!publicData ? Web3.utils.stringToHex(publicData) : Web3.utils.utf8ToHex('1');
-    const publicFieldsHash = Web3.utils.soliditySha3(publicFieldsHex);
-
     const types = ['bytes32', 'bytes32', 'bytes32', 'bytes32'];
-    const values = [Web3.utils.stringToHex(taskId), Web3.utils.stringToHex(schemaId), nullifier, publicFieldsHash];
+    const values = [taskId, schema, nullifier, publicFieldsHash];
 
     if (recipient) {
       types.push('address');
@@ -214,6 +319,33 @@ export default class TransgateConnect {
 
     const nodeAddress = web3.eth.accounts.recover(paramsHash, signature);
     return nodeAddress === originAddress;
+  }
+  /**
+   * check signature is matched with task info
+   * @param params
+   * @returns
+   */
+  verifyMessageSignatureForSolana(params: SolVerifyParams): boolean {
+    const { taskId, uHash, validatorAddress, schema, validatorSignature, recipient, publicFieldsHash } = params;
+
+    const sig_bytes = hexToBytes(validatorSignature.slice(2));
+
+    const signatureBytes = sig_bytes.slice(0, 64);
+    const recoverId = Array.from(sig_bytes.slice(64))[0];
+
+    const plaintext = borsh.serialize(Attest, {
+      task: taskId,
+      nullifier: uHash,
+      schema,
+      recipient,
+      publicFieldsHash,
+    });
+
+    const plaintextHash = Buffer.from(sha3.keccak_256.digest(Buffer.from(plaintext)));
+
+    const address = secp256k1.ecdsaRecover(signatureBytes, recoverId, plaintextHash, false);
+
+    return validatorAddress === sha3.keccak_256.hex(address.slice(1));
   }
   private buildResult(
     data: VerifyResult,
