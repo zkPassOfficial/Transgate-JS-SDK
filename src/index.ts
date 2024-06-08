@@ -238,7 +238,7 @@ export default class TransgateConnect {
     const plaintextHash = Buffer.from(sha3.keccak_256.digest(Buffer.from(plaintext)));
 
     const address = secp256k1.ecdsaRecover(signatureBytes, recoverId, plaintextHash, false);
-    console.log('address', sha3.keccak_256.hex(address.slice(1)));
+ 
     return SolanaTaskAllocator === sha3.keccak_256.hex(address.slice(1));
   }
 
