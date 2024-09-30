@@ -3,9 +3,10 @@ export enum EventDataType {
   'NOT_MATCH_REQUIREMENTS' = 'NOT_MATCH_REQUIREMENTS',
   'ILLEGAL_WINDOW_CLOSING' = 'ILLEGAL_WINDOW_CLOSING',
   'UNEXPECTED_VERIFY_ERROR' = 'UNEXPECTED_VERIFY_ERROR',
+  'INVALID_SCHEMA' = 'INVALID_SCHEMA',
 }
 
-export declare type ChainType = 'evm' | 'sol'
+export declare type ChainType = 'evm' | 'sol' | 'ton'
 
 export interface TaskConfig {
   schemas: { schema_id: string }[];
@@ -31,7 +32,7 @@ export interface VerifyResult {
   type: string;
 }
 
-export interface SolVerifyParams {
+export interface ProofVerifyParams {
   taskId: string
   schema: string
   uHash: string

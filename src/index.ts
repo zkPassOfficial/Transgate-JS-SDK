@@ -3,12 +3,14 @@ import { Buffer } from 'buffer';
 import secp256k1 from 'secp256k1';
 import * as borsh from 'borsh';
 import sha3 from 'js-sha3';
+import { Address as TonAddress, beginCell } from '@ton/ton';
 
-import { server, extensionId, SolanaTaskAllocator, EVMTaskAllocator } from './constants';
-import { EventDataType, Result, Task, TaskConfig, SolVerifyParams, VerifyResult, ChainType } from './types';
+import { server, extensionId, SolanaTaskAllocator, EVMTaskAllocator, TonTaskPubKey } from './constants';
+import { EventDataType, Result, Task, TaskConfig, ProofVerifyParams, VerifyResult, ChainType } from './types';
 import { ErrorCode, TransgateError } from './error';
 import { Attest, SolanaTask } from './solanaInstruction';
 import { hexToBytes } from './helper';
+import { signVerify } from '@ton/crypto';
 
 export default class TransgateConnect {
   readonly appid: string;
@@ -22,9 +24,13 @@ export default class TransgateConnect {
   async launch(schemaId: string, address?: Address) {
     return await this.runTransgate({ schemaId, address, chainType: 'evm' });
   }
-  
+
   async launchWithSolana(schemaId: string, address: string) {
     return await this.runTransgate({ schemaId, address, chainType: 'sol' });
+  }
+
+  async launchWithTon(schemaId: string, address: string) {
+    return await this.runTransgate({ schemaId, address, chainType: 'ton' });
   }
 
   async runTransgate({
@@ -74,7 +80,7 @@ export default class TransgateConnect {
     if (!this.checkTaskInfo(chainType, task, schemaId, nodeAddress, signature)) {
       return new TransgateError(ErrorCode.ILLEGAL_TASK_INFO, 'Please ensure you connected the legitimate task nodes');
     }
-
+    
     this.launchTransgate(extensionParams, address);
 
     return new Promise((resolve, reject) => {
@@ -82,7 +88,14 @@ export default class TransgateConnect {
         if (event.data.id !== extensionParams.id) {
           return;
         }
-        if (event.data.type === EventDataType.GENERATE_ZKP_SUCCESS) {
+        if (event.data.type === EventDataType.INVALID_SCHEMA) {
+          reject(
+            new TransgateError(
+              ErrorCode.ILLEGAL_SCHEMA,
+              'Incorrect schema information.',
+            ),
+          );
+        }else if (event.data.type === EventDataType.GENERATE_ZKP_SUCCESS) {
           window?.removeEventListener('message', eventListener);
           const message: VerifyResult = event.data;
           const { publicFields = [] } = message;
@@ -143,12 +156,7 @@ export default class TransgateConnect {
    * @param {*} schemaId string schema id
    * @returns
    */
-  private async requestTaskInfo(
-    taskUrl: string,
-    token: string,
-    schemaId: string,
-    chainType: 'evm' | 'sol',
-  ): Promise<Task> {
+  private async requestTaskInfo(taskUrl: string, token: string, schemaId: string, chainType: ChainType): Promise<Task> {
     const response = await fetch(`https://${taskUrl}`, {
       method: 'POST',
       headers: {
@@ -158,7 +166,7 @@ export default class TransgateConnect {
         token,
         schema_id: schemaId,
         app_id: this.appid,
-        chain_type: chainType,
+        chain_type: chainType        
       }),
     });
     if (response.ok) {
@@ -212,9 +220,11 @@ export default class TransgateConnect {
     }
   }
 
-  checkTaskInfo(chainType: ChainType, task: string, schema: string, validatorAddress: string, signature: string) {
+  checkTaskInfo(chainType: ChainType, task: string, schema: string, validatorAddress: string, signature: string) {    
     if (chainType === 'sol') {
       return this.checkTaskInfoForSolana(task, schema, validatorAddress, signature);
+    } else if (chainType === 'ton') {
+      return this.checkTaskInfoForTon(task, schema, validatorAddress, signature);
     }
 
     const taskHex = Web3.utils.stringToHex(task);
@@ -238,8 +248,18 @@ export default class TransgateConnect {
     const plaintextHash = Buffer.from(sha3.keccak_256.digest(Buffer.from(plaintext)));
 
     const address = secp256k1.ecdsaRecover(signatureBytes, recoverId, plaintextHash, false);
- 
+
     return SolanaTaskAllocator === sha3.keccak_256.hex(address.slice(1));
+  }
+
+  checkTaskInfoForTon(task: string, schema: string, validatorAddress:string, signature: string) {
+    const taskCell = beginCell()
+      .storeBuffer(Buffer.from(task, 'ascii'))
+      .storeBuffer(Buffer.from(schema, 'ascii'))
+      .storeBuffer(Buffer.from(validatorAddress, 'hex'))
+      .endCell();    
+    const taskVerify = signVerify(taskCell.hash(), Buffer.from(signature, 'hex'), Buffer.from(TonTaskPubKey, 'hex'));    
+    return taskVerify;
   }
 
   checkTaskInfoForEVM(task: string, schema: string, validatorAddress: string, signature: string) {
@@ -273,6 +293,17 @@ export default class TransgateConnect {
       const rec = recipient as string;
 
       return this.verifyMessageSignatureForSolana({
+        taskId,
+        uHash,
+        validatorAddress,
+        schema,
+        validatorSignature,
+        recipient: rec,
+        publicFieldsHash,
+      });
+    } else if (chainType === 'ton') {
+      const rec = recipient as string;
+      return this.verifyMessageSignatureForTon({
         taskId,
         uHash,
         validatorAddress,
@@ -325,7 +356,7 @@ export default class TransgateConnect {
    * @param params
    * @returns
    */
-  verifyMessageSignatureForSolana(params: SolVerifyParams): boolean {
+  verifyMessageSignatureForSolana(params: ProofVerifyParams): boolean {
     const { taskId, uHash, validatorAddress, schema, validatorSignature, recipient, publicFieldsHash } = params;
 
     const sig_bytes = hexToBytes(validatorSignature.slice(2));
@@ -371,5 +402,28 @@ export default class TransgateConnect {
       validatorSignature: signature,
       recipient,
     };
+  }
+
+  verifyMessageSignatureForTon(params: ProofVerifyParams): boolean {
+    const { taskId, uHash, validatorAddress, schema, validatorSignature, recipient, publicFieldsHash } = params;
+
+    const attestationCell = beginCell()
+      .storeRef(
+        beginCell()
+          .storeBuffer(Buffer.from(taskId, 'ascii'))
+          .storeBuffer(Buffer.from(schema, 'ascii'))
+          .storeBuffer(Buffer.from(uHash.slice(2), 'hex'))
+          .endCell(),
+      )
+      .storeAddress(TonAddress.parse(recipient))
+      .storeRef(beginCell().storeBuffer(Buffer.from(publicFieldsHash.slice(2), 'hex')).endCell())
+      .endCell();    
+    const attestationVerify = signVerify(
+      attestationCell.hash(),
+      Buffer.from(validatorSignature.slice(2), 'hex'),
+      Buffer.from(validatorAddress, 'hex'),
+    );
+
+    return attestationVerify;
   }
 }

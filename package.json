@@ -1,6 +1,6 @@
 {
   "name": "@zkpass/transgate-js-sdk",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
@@ -41,6 +41,9 @@
     "typescript": "^5.2.2"
   },
   "dependencies": {
+    "@ton/core": "^0.58.1",
+    "@ton/crypto": "^3.3.0",
+    "@ton/ton": "^15.0.0",
     "borsh": "^2.0.0",
     "buffer": "^6.0.3",
     "js-sha3": "^0.9.3",
