@@ -9,7 +9,7 @@ import { server, extensionId, SolanaTaskAllocator, EVMTaskAllocator, TonTaskPubK
 import { EventDataType, Result, Task, TaskConfig, ProofVerifyParams, VerifyResult, ChainType } from './types';
 import { ErrorCode, TransgateError } from './error';
 import { Attest, SolanaTask } from './solanaInstruction';
-import { hexToBytes } from './helper';
+import { getObjectValues, hexToBytes } from './helper';
 import { signVerify } from '@ton/crypto';
 
 export default class TransgateConnect {
@@ -80,7 +80,7 @@ export default class TransgateConnect {
     if (!this.checkTaskInfo(chainType, task, schemaId, nodeAddress, signature)) {
       return new TransgateError(ErrorCode.ILLEGAL_TASK_INFO, 'Please ensure you connected the legitimate task nodes');
     }
-    
+
     this.launchTransgate(extensionParams, address);
 
     return new Promise((resolve, reject) => {
@@ -89,19 +89,19 @@ export default class TransgateConnect {
           return;
         }
         if (event.data.type === EventDataType.INVALID_SCHEMA) {
-          reject(
-            new TransgateError(
-              ErrorCode.ILLEGAL_SCHEMA,
-              'Incorrect schema information.',
-            ),
-          );
-        }else if (event.data.type === EventDataType.GENERATE_ZKP_SUCCESS) {
+          reject(new TransgateError(ErrorCode.ILLEGAL_SCHEMA, 'Incorrect schema information.'));
+        } else if (event.data.type === EventDataType.GENERATE_ZKP_SUCCESS) {
           window?.removeEventListener('message', eventListener);
           const message: VerifyResult = event.data;
           const { publicFields = [] } = message;
-          const publicFieldsList = publicFields.map((item: any) => item.str);
-          const publicData =
-            publicFieldsList.length > 0 ? publicFieldsList.reduce((a: string, b: string) => a + b) : '';
+          const publicData = getObjectValues(
+            publicFields.map((item: any) => {
+              delete item.str;
+              return item;
+            }),
+          );
+
+          console.log('publicData', publicData);
 
           const proofResult = this.buildResult(message, taskInfo, publicData, allocatorAddress, address);
 
@@ -166,7 +166,7 @@ export default class TransgateConnect {
         token,
         schema_id: schemaId,
         app_id: this.appid,
-        chain_type: chainType        
+        chain_type: chainType,
       }),
     });
     if (response.ok) {
@@ -220,7 +220,7 @@ export default class TransgateConnect {
     }
   }
 
-  checkTaskInfo(chainType: ChainType, task: string, schema: string, validatorAddress: string, signature: string) {    
+  checkTaskInfo(chainType: ChainType, task: string, schema: string, validatorAddress: string, signature: string) {
     if (chainType === 'sol') {
       return this.checkTaskInfoForSolana(task, schema, validatorAddress, signature);
     } else if (chainType === 'ton') {
@@ -252,13 +252,13 @@ export default class TransgateConnect {
     return SolanaTaskAllocator === sha3.keccak_256.hex(address.slice(1));
   }
 
-  checkTaskInfoForTon(task: string, schema: string, validatorAddress:string, signature: string) {
+  checkTaskInfoForTon(task: string, schema: string, validatorAddress: string, signature: string) {
     const taskCell = beginCell()
       .storeBuffer(Buffer.from(task, 'ascii'))
       .storeBuffer(Buffer.from(schema, 'ascii'))
       .storeBuffer(Buffer.from(validatorAddress, 'hex'))
-      .endCell();    
-    const taskVerify = signVerify(taskCell.hash(), Buffer.from(signature, 'hex'), Buffer.from(TonTaskPubKey, 'hex'));    
+      .endCell();
+    const taskVerify = signVerify(taskCell.hash(), Buffer.from(signature, 'hex'), Buffer.from(TonTaskPubKey, 'hex'));
     return taskVerify;
   }
 
@@ -416,8 +416,12 @@ export default class TransgateConnect {
           .endCell(),
       )
       .storeAddress(TonAddress.parse(recipient))
-      .storeRef(beginCell().storeBuffer(Buffer.from(publicFieldsHash.slice(2), 'hex')).endCell())
-      .endCell();    
+      .storeRef(
+        beginCell()
+          .storeBuffer(Buffer.from(publicFieldsHash.slice(2), 'hex'))
+          .endCell(),
+      )
+      .endCell();
     const attestationVerify = signVerify(
       attestationCell.hash(),
       Buffer.from(validatorSignature.slice(2), 'hex'),
