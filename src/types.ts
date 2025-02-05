@@ -12,6 +12,7 @@ export interface TaskConfig {
   schemas: { schema_id: string }[];
   task_rpc: string;
   token: string;
+  callbackUrl?: string;
 }
 
 export interface Task {

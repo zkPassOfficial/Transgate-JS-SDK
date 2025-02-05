@@ -1,6 +1,6 @@
 {
   "name": "@zkpass/transgate-js-sdk",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
@@ -32,6 +32,7 @@
   "homepage": "https://github.com/zkPassOfficial/Transgate-JS-SDK/issues#readme",
   "devDependencies": {
     "@types/node": "^20.9.2",
+    "@types/qrcode": "^1.5.5",
     "@types/secp256k1": "^4.0.6",
     "@typescript-eslint/eslint-plugin": "^6.14.0",
     "@typescript-eslint/parser": "^6.14.0",
@@ -47,6 +48,7 @@
     "borsh": "^2.0.0",
     "buffer": "^6.0.3",
     "js-sha3": "^0.9.3",
+    "qrcode": "^1.5.4",
     "secp256k1": "^5.0.0",
     "web3": "^4.2.2"
   }

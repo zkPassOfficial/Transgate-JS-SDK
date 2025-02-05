@@ -4,21 +4,42 @@ import secp256k1 from 'secp256k1';
 import * as borsh from 'borsh';
 import sha3 from 'js-sha3';
 import { Address as TonAddress, beginCell } from '@ton/ton';
+import QRCode from 'qrcode';
 
-import { server, extensionId, SolanaTaskAllocator, EVMTaskAllocator, TonTaskPubKey } from './constants';
+import {
+  server,
+  extensionId,
+  SolanaTaskAllocator,
+  EVMTaskAllocator,
+  TonTaskPubKey,
+  DefaultCallbackUrl,
+  ScanResultUrl,
+} from './constants';
 import { EventDataType, Result, Task, TaskConfig, ProofVerifyParams, VerifyResult, ChainType } from './types';
 import { ErrorCode, TransgateError } from './error';
 import { Attest, SolanaTask } from './solanaInstruction';
-import { getObjectValues, hexToBytes } from './helper';
+import {
+  getObjectValues,
+  hexToBytes,
+  insertQrcodeMask,
+  getDeviceType,  
+  injectMetaTag,
+  launchApp,
+  insertMobileDialog,
+  removeMetaTag,
+} from './helper';
 import { signVerify } from '@ton/crypto';
 
 export default class TransgateConnect {
   readonly appid: string;
   readonly baseServer: string;
   transgateAvailable?: boolean;
+  terminal?: boolean;
+  removeModal?: () => void;
   constructor(appid: string) {
     this.appid = appid;
     this.baseServer = server;
+    this.terminal = false;
   }
 
   async launch(schemaId: string, address?: Address) {
@@ -42,21 +63,105 @@ export default class TransgateConnect {
     address?: Address;
     chainType?: ChainType;
   }) {
-    const transgateAvailable = await this.isTransgateAvailable();
-    if (!transgateAvailable) {
-      throw new TransgateError(ErrorCode.TRANSGATE_NOT_INSTALLED, 'Please install transgate before generate proof.');
+    this.terminal = false;
+    const device = getDeviceType();
+
+    if (device === 'iOS') {
+      this.handleIOSModal();
     }
+
+    this.transgateAvailable = await this.isTransgateAvailable();
 
     const config = await this.requestConfig();
     if (config.schemas.findIndex((schema) => schema.schema_id === schemaId) === -1) {
       throw new TransgateError(ErrorCode.ILLEGAL_SCHEMA_ID, 'Illegal schema id, please check your schema info');
     }
 
-    const schemaUrl = `${this.baseServer}/schema/${schemaId}`;
-
-    const schemaInfo = await this.requestSchemaInfo(schemaUrl);
-
     const taskInfo = await this.requestTaskInfo(config.task_rpc, config.token, schemaId, chainType);
+
+    const callbackUrl = config.callbackUrl || DefaultCallbackUrl;
+    const appBasePath = 'https://app.zkpass.org/verify';
+
+    let query = `app_id=${this.appid}&task_id=${taskInfo.task}&schema_id=${schemaId}&chain_type=${chainType}&callback_url=${callbackUrl}`;
+
+    if (address) {
+      query = `${query}/&account=${address}`;
+    }
+    if (device === 'Android') {
+      window.location.href = `${appBasePath}?${query}`;
+      return await this.getProofInfo(taskInfo.task, callbackUrl);
+    } else if (device === 'iOS') {
+      removeMetaTag('apple-itunes-app');
+      injectMetaTag(
+        'apple-itunes-app',
+        'app-clip-bundle-id=com.zkpass.transgate.clip, app-id=6738957441 app-clip-display=card',
+      );
+      const clipUrl = `https://appclip.apple.com/id?p=com.zkpass.transgate.clip&${query}`;
+      this.handleIOSApp(clipUrl);
+      return await this.getProofInfo(taskInfo.task, callbackUrl);
+    } else if (this.transgateAvailable) {
+      //support mobile but transgate is available and not mobile
+      return await this.runTransgateExtension({ schemaId, address, taskInfo, chainType });
+    } else {
+      //support mobile but transgate is not available generate a qrcode
+      const launchUrl = `${appBasePath}?${query}`;
+      return await this.runWithTransgateApp(launchUrl, taskInfo.task, callbackUrl);
+    }
+  }
+
+  private async runWithTransgateApp(launchUrl: string, taskId: string, callbackUrl: string) {
+    try {
+      const { canvasElement, remove } = insertQrcodeMask();
+
+      await QRCode.toCanvas(canvasElement, launchUrl, {
+        width: 240,
+      });
+
+      const closeBtn = document.getElementById('close-transgate');
+      const zkpassCanvas = document.getElementById('zkpass-canvas');
+
+      closeBtn?.addEventListener('click', () => {
+        remove();
+        this.terminal = true;
+      });
+
+      this.getScanResult(taskId).then((taskUsed: unknown) => {
+        if (taskUsed) {
+          //@ts-ignore
+          const ctx = zkpassCanvas.getContext('2d');
+          ctx.filter = 'blur(5px)';
+          ctx.drawImage(zkpassCanvas, 0, 0);
+        }
+      });
+
+      const proof = await this.getProofInfo(taskId, callbackUrl);
+
+      if (proof) {
+        remove();
+      }
+      return proof;
+    } catch (error) {
+      if (this.terminal) {
+        throw new TransgateError(ErrorCode.VERIFICATION_CANCELED, 'User terminal the validation.');
+      }
+      throw new TransgateError(ErrorCode.UNEXPECTED_ERROR, error);
+    }
+  }
+
+  private async runTransgateExtension({
+    schemaId,
+    address,
+    taskInfo,
+    chainType = 'evm',
+  }: {
+    schemaId: string;
+    taskInfo: Task;
+    address?: Address;
+    chainType?: ChainType;
+  }) {
+    const schemaUrl = `${this.baseServer}/schema/${schemaId}`;
+    const schemaInfo = await this.requestSchemaInfo(schemaUrl);
+    console.log('runTransgateExtension address', address);
     const {
       task,
       alloc_address: allocatorAddress,
@@ -102,10 +207,12 @@ export default class TransgateConnect {
           );
 
           console.log('publicData', publicData);
+          console.log('address', address);
 
           const proofResult = this.buildResult(message, taskInfo, publicData, allocatorAddress, address);
-
+          console.log('proofResult', JSON.stringify(proofResult));
           if (this.verifyProofMessageSignature(chainType, schemaId, proofResult)) {
+            console.log('proofResult', proofResult);
             resolve(proofResult);
           } else {
             reject(
@@ -167,6 +274,7 @@ export default class TransgateConnect {
         schema_id: schemaId,
         app_id: this.appid,
         chain_type: chainType,
+        debug: false,
       }),
     });
     if (response.ok) {
@@ -206,17 +314,108 @@ export default class TransgateConnect {
     throw new TransgateError(ErrorCode.ILLEGAL_SCHEMA_ID, 'Illegal schema url, please contact develop team!');
   }
 
-  async isTransgateAvailable() {
-    try {
-      const url = `chrome-extension://${extensionId}/images/icon-16.png`;
-      const { statusText } = await fetch(url);
-      if (statusText === 'OK') {
-        this.transgateAvailable = true;
-        return true;
-      }
-      return false;
-    } catch (error) {
-      return false;
+  private async getProofInfo(taskId: string, callbackUrl: string) {
+    return new Promise((resolve, reject) => {
+      let loopCount = 0;
+      const requestInfo = () => {
+        loopCount++;
+        if (loopCount > 300) {
+          reject(new TransgateError(ErrorCode.REQUEST_TIMEOUT, 'Request timeout, please try again'));
+          return;
+        }
+
+        if (this.terminal) {
+          reject(new TransgateError(ErrorCode.VERIFICATION_CANCELED, 'User terminal the validation.'));
+          return;
+        }
+
+        setTimeout(async () => {
+          try {
+            const response = await fetch(`${callbackUrl}?task_index=${taskId}`);
+            if (response.ok) {
+              const res = await response.json();
+              resolve(res.info);
+            } else {
+              requestInfo();
+            }
+          } catch (error) {
+            requestInfo();
+          }
+        }, 2000);
+      };
+
+      requestInfo();
+    });
+  }
+
+  private async getScanResult(taskId: string) {
+    return new Promise((resolve, reject) => {
+      let loopCount = 0;
+      const requestScanResult = () => {
+        loopCount++;
+        if (loopCount > 300) {
+          reject(new TransgateError(ErrorCode.REQUEST_TIMEOUT, 'Request timeout, please try again'));
+          return;
+        }
+
+        if (this.terminal) {
+          reject(new TransgateError(ErrorCode.VERIFICATION_CANCELED, 'User terminal the validation.'));
+          return;
+        }
+
+        setTimeout(async () => {
+          try {
+            const response = await await fetch(ScanResultUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                task_id: taskId,
+              }),
+            });
+            if (response.ok) {
+              const res = await response.json();
+              //Task ID has been used
+              if (res.info.used) {
+                resolve(true);
+              } else {
+                requestScanResult();
+              }
+            } else {
+              requestScanResult();
+            }
+          } catch (error) {
+            requestScanResult();
+          }
+        }, 1000);
+      };
+
+      requestScanResult();
+    });
+  }
+
+  handleIOSModal() {
+    const { remove } = insertMobileDialog();
+    this.removeModal = remove;
+    const closeBtn = document.getElementById('close-transgate');
+    closeBtn?.addEventListener('click', () => {
+      remove();
+      this.terminal = true;
+    });
+  }
+
+  handleIOSApp(clipUrl: string) {
+    const loading_box = document.getElementById('loading-box');
+    loading_box?.remove();
+    const complete_box = document.getElementById('complete-box');
+    const verify_button = document.getElementById('verify-button');
+    if (complete_box) {
+      complete_box.style.display = 'flex';
+      verify_button?.addEventListener('click', () => {
+        this.removeModal && this.removeModal();
+        launchApp(clipUrl);
+      });
     }
   }
 
@@ -429,5 +628,19 @@ export default class TransgateConnect {
     );
 
     return attestationVerify;
+  }
+
+  async isTransgateAvailable() {
+    try {
+      const url = `chrome-extension://${extensionId}/images/icon-16.png`;
+      const { statusText } = await fetch(url);
+      if (statusText === 'OK') {
+        this.transgateAvailable = true;
+        return true;
+      }
+      return false;
+    } catch (error) {
+      return false;
+    }
   }
 }
