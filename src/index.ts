@@ -22,7 +22,7 @@ import {
   getObjectValues,
   hexToBytes,
   insertQrcodeMask,
-  getDeviceType,  
+  getDeviceType,
   injectMetaTag,
   launchApp,
   insertMobileDialog,
@@ -320,20 +320,23 @@ export default class TransgateConnect {
       const requestInfo = () => {
         loopCount++;
         if (loopCount > 300) {
+          this.removeModal && this.removeModal();
           reject(new TransgateError(ErrorCode.REQUEST_TIMEOUT, 'Request timeout, please try again'));
           return;
         }
 
         if (this.terminal) {
+          this.removeModal && this.removeModal();
           reject(new TransgateError(ErrorCode.VERIFICATION_CANCELED, 'User terminal the validation.'));
           return;
         }
 
         setTimeout(async () => {
           try {
-            const response = await fetch(`${callbackUrl}?task_index=${taskId}`);
+            const response = await fetch(`${callbackUrl}?task_index=${taskId}`, { signal: AbortSignal.timeout(5000) });
             if (response.ok) {
               const res = await response.json();
+              this.removeModal && this.removeModal();
               resolve(res.info);
             } else {
               requestInfo();
@@ -412,8 +415,7 @@ export default class TransgateConnect {
     const verify_button = document.getElementById('verify-button');
     if (complete_box) {
       complete_box.style.display = 'flex';
-      verify_button?.addEventListener('click', () => {
-        this.removeModal && this.removeModal();
+      verify_button?.addEventListener('click', () => {        
         launchApp(clipUrl);
       });
     }
