@@ -27,6 +27,7 @@ import {
   launchApp,
   insertMobileDialog,
   removeMetaTag,
+  launchAppForAndroid,
 } from './helper';
 import { signVerify } from '@ton/crypto';
 
@@ -88,7 +89,7 @@ export default class TransgateConnect {
       query = `${query}/&account=${address}`;
     }
     if (device === 'Android') {
-      window.location.href = `${appBasePath}?${query}`;
+      launchAppForAndroid(`zkpass://zkpass.com/verify?${query}`, `${appBasePath}?${query}`);
       return await this.getProofInfo(taskInfo.task, callbackUrl);
     } else if (device === 'iOS') {
       removeMetaTag('apple-itunes-app');
@@ -415,7 +416,7 @@ export default class TransgateConnect {
     const verify_button = document.getElementById('verify-button');
     if (complete_box) {
       complete_box.style.display = 'flex';
-      verify_button?.addEventListener('click', () => {        
+      verify_button?.addEventListener('click', () => {
         launchApp(clipUrl);
       });
     }

@@ -84,6 +84,7 @@ export function insertQrcodeMask() {
   modal.style.justifyContent = 'center';
   modal.style.alignItems = 'center';
   modal.style.zIndex = '9999';
+  modal.style.pointerEvents = 'auto';
 
   document.getElementsByTagName('body')[0].appendChild(modal);
 
@@ -144,6 +145,26 @@ export async function isTransgateAvailable(extensionId: string) {
     return false;
   } catch (error) {
     return false;
+  }
+}
+
+export function launchAppForAndroid(url: string, backupUrl: string) {
+  try {
+    const iframe = document.createElement('iframe');
+    iframe.style.display = 'none';
+    iframe.src = url;
+    document.body.appendChild(iframe);
+
+    const fallbackTimeout = setTimeout(() => {
+      window.location.href = backupUrl;
+    }, 1500);
+
+    window.addEventListener('blur', () => {
+      clearTimeout(fallbackTimeout);
+      iframe.remove();
+    });
+  } catch (error) {
+    console.error('launchAppForAndroid error:', error);
   }
 }
 
