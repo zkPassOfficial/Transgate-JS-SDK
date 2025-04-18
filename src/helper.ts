@@ -64,6 +64,7 @@ export function insertMobileDialog() {
   modal.style.justifyContent = 'center';
   modal.style.alignItems = 'center';
   modal.style.zIndex = '9999';
+  modal.style.pointerEvents = 'auto';
 
   document.getElementsByTagName('body')[0].appendChild(modal);
   modal.innerHTML = mobileDialog;

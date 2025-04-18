@@ -9,6 +9,7 @@ export const transgateWrapper = `<div>
           border-radius: 15px;
           font-family: Arial, Helvetica, sans-serif;
           color: #1e2329;
+          pointer-events: auto;
         }
         #modal-header {
           display: flex;
@@ -196,6 +197,7 @@ export const mobileDialog = `<div>
           border-radius: 15px;
           font-family: Arial, Helvetica, sans-serif;
           color: #1e2329;
+          pointer-events: auto;
         }
         #modal {
           position: relative;
