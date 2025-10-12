@@ -83,11 +83,15 @@ export default class TransgateConnect {
     const callbackUrl = config.callbackUrl || DefaultCallbackUrl;
     const appBasePath = 'https://app.zkpass.org/verify';
 
-    let query = `app_id=${this.appid}&task_id=${taskInfo.task}&schema_id=${schemaId}&chain_type=${chainType}&callback_url=${callbackUrl}`;
-
-    if (address) {
-      query = `${query}/&account=${address}`;
-    }
+    const params = new URLSearchParams({
+      app_id: this.appid,
+      task_id: taskInfo.task,
+      schema_id: schemaId,
+      chain_type: chainType,
+      callback_url: callbackUrl,
+    });
+    if (address) params.set('account', address);
+    const query = params.toString();
     if (device === 'Android') {
       launchAppForAndroid(`zkpass://zkpass.com/verify?${query}`, `${appBasePath}?${query}`);
       return await this.getProofInfo(taskInfo.task, callbackUrl);
