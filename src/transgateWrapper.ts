@@ -7,9 +7,13 @@ export const transgateWrapper = `<div>
           background-color: #ffffff;
           padding: 24px;
           border-radius: 15px;
-          font-family: Arial, Helvetica, sans-serif;
+          font-family: Arial, Helvetica, sans-serif !important;
           color: #1e2329;
           pointer-events: auto;
+        }
+        #zkpass-modal-wrapper * {
+          font-family: Arial, Helvetica, sans-serif !important;
+          text-transform: none !important;
         }
         #modal-header {
           display: flex;
@@ -95,8 +99,7 @@ export const transgateWrapper = `<div>
             display: grid;
             grid-template-columns: auto auto;
             gap: 16px;
-            color: #9d9d9d;
-            font-size: 12px;
+            color: #9d9d9d;            
             padding: 12px;
             box-sizing: border-box;
             border-radius: 8px;
@@ -106,6 +109,7 @@ export const transgateWrapper = `<div>
             display: grid;
             grid-gap: 16px;
             grid-auto-flow: column;
+            font-size: 12px !important;
           }
           .grid {
             margin-top: 12px;
@@ -184,131 +188,135 @@ export const transgateWrapper = `<div>
 `;
 
 export const mobileDialog = `<div>
-      <style>
-        body {
-          background-color: #1e2329;
-        }
-        #zkpass-modal-wrapper {
-          display: block;
-          width: 280px;
-          min-height: 100px;
-          background-color: #ffffff;
-          padding: 12px;
-          border-radius: 15px;
-          font-family: Arial, Helvetica, sans-serif;
-          color: #1e2329;
-          pointer-events: auto;
-        }
-        #modal {
-          position: relative;
-          width: 260px;
-          min-height: 100px;
-        }
-        #modal .close-icon {
-          position: absolute;
-          top: 0px;
-          right: 6px;
-          width: 20px;
-          height: 20px;
-        }
-        .close-icon::before,
-        .close-icon::after {
-          content: "";
-          position: absolute;
-          width: 2px;
-          height: 20px;
-          background-color: #9d9d9d;
-          left: 9px;
-          top: 0;
-        }
+  <style>
+    body {
+      background-color: #1e2329;
+    }
+    #zkpass-modal-wrapper {
+      display: block;
+      width: 280px;
+      min-height: 100px;
+      background-color: #ffffff;
+      padding: 12px;
+      border-radius: 15px;
+      font-family: Arial, Helvetica, sans-serif !important;
+      color: #1e2329;
+      pointer-events: auto;
+    }
+    #zkpass-modal-wrapper * {
+      font-family: Arial, Helvetica, sans-serif !important;
+      text-transform: none !important;
+    }
+    #modal {
+      position: relative;
+      width: 260px;
+      min-height: 100px;
+    }
+    #modal .close-icon {
+      position: absolute;
+      top: 0px;
+      right: 6px;
+      width: 20px;
+      height: 20px;
+    }
+    .close-icon::before,
+    .close-icon::after {
+      content: "";
+      position: absolute;
+      width: 2px;
+      height: 20px;
+      background-color: #9d9d9d;
+      left: 9px;
+      top: 0;
+    }
 
-        .close-icon::before {
-          transform: rotate(45deg);
-        }
+    .close-icon::before {
+      transform: rotate(45deg);
+    }
 
-        .close-icon::after {
-          transform: rotate(-45deg);
-        }
+    .close-icon::after {
+      transform: rotate(-45deg);
+    }
 
-        .loading-text {
-          display: flex;
-          align-items: center;
-          color: #000000;
-        }
+    .loading-text {
+      display: flex;
+      align-items: center;
+      color: #000000;
+    }
 
-        .loader {
-          width: 30px;
-          height: 30px;
-          border: 1px solid;
-          border-color: #000000 transparent;
-          border-radius: 50%;
-          display: inline-block;
-          box-sizing: border-box;
-          margin-right: 8px;
-          animation: rotation 1s linear infinite;
-        }
+    .loader {
+      width: 30px;
+      height: 30px;
+      border: 1px solid;
+      border-color: #000000 transparent;
+      border-radius: 50%;
+      display: inline-block;
+      box-sizing: border-box;
+      margin-right: 8px;
+      animation: rotation 1s linear infinite;
+    }
 
-        @keyframes rotation {
-          0% {
-            transform: rotate(0deg);
-          }
-          100% {
-            transform: rotate(360deg);
-          }
-        }
+    @keyframes rotation {
+      0% {
+    transform: rotate(0deg);
+      }
+      100% {
+    transform: rotate(360deg);
+      }
+    }
 
-        #modal-body {
-          display: flex;
-          align-items: center;
-          align-content: center;
-          justify-content: center;
-          justify-items: center;
-          flex-direction: column;
-          min-height: 100px;
-          p {
-            font-size: 14px;
-            color: #2c333c;
-            margin-bottom: 0;
-            margin-top: 20px;            
-          }
-        }
-        #loading-box, #complete-box{
-          display: flex;
-          align-items: center;
-          align-content: center;
-          justify-content: center;
-          justify-items: center;
-          flex-direction: column;
-        }
-        #complete-box{
-          display: none;
-        }
-        button {
-          background-color: #1e2329;
-          color: #ffffff;
-          border: none;
-          border-radius: 5px;
-          padding: 8px 16px;
-          cursor: pointer;
-          font-size: 12px;
-          margin-top: 16px;
-        }
-      </style>
-      <div id="zkpass-modal-wrapper">
-        <div id="modal">
-          <div id="close-transgate" class="close-icon"></div>
-          <div id="modal-body">
-            <div id="loading-box">
-              <div class="loading-text">
-                <span class="loader"></span>
-              </div>
-              <p>Application for validation task</p>
-            </div>
-            <div id="complete-box">
-              <p>Task information preparation complete </p>
-              <button id="verify-button">Verify By TransGate Clip</button>
-            </div>            
-          </div>
-        </div>
+    #modal-body {
+      display: flex;
+      align-items: center;
+      align-content: center;
+      justify-content: center;
+      justify-items: center;
+      flex-direction: column;
+      min-height: 100px;
+      p {
+    font-size: 14px;
+    color: #2c333c;
+    margin-bottom: 0;
+    margin-top: 20px;            
+      }
+    }
+    #loading-box, #complete-box{
+      display: flex;
+      align-items: center;
+      align-content: center;
+      justify-content: center;
+      justify-items: center;
+      flex-direction: column;
+    }
+    #complete-box{
+      display: none;
+    }
+    button {
+      background-color: #1e2329;
+      color: #ffffff;
+      border: none;
+      border-radius: 5px;
+      padding: 8px 16px;
+      cursor: pointer;
+      font-size: 12px !important;
+      margin-top: 16px;
+    }
+  </style>
+  <div id="zkpass-modal-wrapper">
+    <div id="modal">
+      <div id="close-transgate" class="close-icon"></div>
+      <div id="modal-body">
+    <div id="loading-box">
+      <div class="loading-text">
+        <span class="loader"></span>
       </div>
+      <p>Application for validation task</p>
+    </div>
+    <div id="complete-box">
+      <p>Task information preparation complete </p>
+      <button id="verify-button">Verify By TransGate Clip</button>
+    </div>            
+      </div>
+    </div>
+  </div>
     </div>`;
