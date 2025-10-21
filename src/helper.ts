@@ -196,3 +196,13 @@ export function genPublicFieldHash(publicFields = []) {
     !!publicFieldStr ? Web3.utils.stringToHex(publicFieldStr) : Web3.utils.utf8ToHex('1'),
   ) as string;
 }
+
+export function textToUnicodeSmart(str: string) {
+  return Array.from(str).map(ch => {
+    const code = ch.codePointAt(0);    
+    if (code! <= 0x7f) {
+      return ch;
+    }
+    return '\\u' + code?.toString(16).padStart(4, '0');
+  }).join('');
+}

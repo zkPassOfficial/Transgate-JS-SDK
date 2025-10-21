@@ -28,6 +28,7 @@ import {
   insertMobileDialog,
   removeMetaTag,
   launchAppForAndroid,
+  textToUnicodeSmart,
 } from './helper';
 import { signVerify } from '@ton/crypto';
 
@@ -589,8 +590,9 @@ export default class TransgateConnect {
   ): Result {
     const { publicFields, taskId, nullifierHash, signature } = data;
     const { node_address: nodeAddress, alloc_signature: allocSignature } = taskInfo;
+
     const publicFieldsHash = Web3.utils.soliditySha3(
-      !!publicData ? Web3.utils.stringToHex(publicData) : Web3.utils.utf8ToHex('1'),
+      !!publicData ? Web3.utils.stringToHex(textToUnicodeSmart(publicData)) : Web3.utils.utf8ToHex('1'),
     ) as string;
 
     return {
