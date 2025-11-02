@@ -171,8 +171,8 @@ export function launchAppForAndroid(url: string, backupUrl: string) {
 
 export function genPublicFieldHash(publicFields = []) {
   const publicData = publicFields.map((item: any) => {
-    delete item.str;
-    return item;
+    const { str, ...rest } = item;
+    return rest;
   });
 
   let values: any = [];
