@@ -1,3 +1,5 @@
+import { DomElementId, DownloadUrl, QrCodeWidth } from './constants';
+
 export const transgateWrapper = `<div>
       <style>
         #zkpass-modal-wrapper {
@@ -52,15 +54,15 @@ export const transgateWrapper = `<div>
         #modal-body {
           margin: 36px auto 24px;
           position: relative;
-          width: 240px;
-          #zkpass-canvas {
-            width: 240px;
-            height: 240px;
+          width: ${QrCodeWidth}px;
+          #${DomElementId.CANVAS} {
+            width: ${QrCodeWidth}px;
+            height: ${QrCodeWidth}px;
             background-color: #f0f0f0;
           }
           #zkPass-logo {
             position: absolute;
-            top: 120px;
+            top: ${QrCodeWidth / 2}px;
             left: 50%;
             width: 48px;
             height: 48px;
@@ -123,10 +125,10 @@ export const transgateWrapper = `<div>
         <div id="modal">
           <div id="modal-header">
             <p>Verify by TransGate App</p>
-            <div id="close-transgate" class="close-icon"></div>
+            <div id="${DomElementId.CLOSE}" class="close-icon"></div>
           </div>
           <div id="modal-body">
-            <canvas id="zkpass-canvas" with="240" height="240"></canvas>
+            <canvas id="${DomElementId.CANVAS}" width="${QrCodeWidth}" height="${QrCodeWidth}"></canvas>
             <div id="zkPass-logo">
               <svg width="1091" height="1091" viewBox="0 0 1091 1091" fill="none" xmlns="http://www.w3.org/2000/svg">
               <rect x="1" y="1" width="1089" height="1089" fill="#C5FF4A" stroke="#3D3D3D"/>
@@ -141,7 +143,7 @@ export const transgateWrapper = `<div>
             <div class="tips">Don’t have the zkPass app yet?</div>
             <div class="grid">      
               <div id="download-ios" class="download-btn" style="border: 1px solid rgb(234, 236, 239)">
-                <a href="https://apps.apple.com/us/app/transgate/id1561374855" target="_blank" style="text-decoration: none; ">
+                <a href="${DownloadUrl.IOS}" target="_blank" style="text-decoration: none; ">
                 <svg width="24" height="24" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                   <path
                     d="M21.7725 18.7033C21.4062 19.5418 20.9727 20.3136 20.4704 21.0232C19.7857 21.9906 19.2251 22.6602 18.7931 23.032C18.1233 23.6424 17.4058 23.955 16.6374 23.9728C16.0857 23.9728 15.4205 23.8172 14.6461 23.5017C13.8692 23.1876 13.1552 23.032 12.5024 23.032C11.8177 23.032 11.0834 23.1876 10.2979 23.5017C9.51127 23.8172 8.87756 23.9816 8.39305 23.9979C7.65619 24.0291 6.92173 23.7076 6.1886 23.032C5.72069 22.6276 5.13542 21.9343 4.43429 20.9521C3.68203 19.9033 3.06358 18.687 2.57906 17.3004C2.06017 15.8026 1.80005 14.3523 1.80005 12.9482C1.80005 11.3398 2.15076 9.95259 2.85324 8.79011C3.40532 7.85636 4.13979 7.11979 5.05903 6.57906C5.97827 6.03834 6.97151 5.76279 8.04114 5.74516C8.62641 5.74516 9.39391 5.92456 10.3477 6.27715C11.2988 6.63091 11.9095 6.81032 12.1772 6.81032C12.3774 6.81032 13.0558 6.60054 14.2058 6.18233C15.2934 5.79449 16.2113 5.63391 16.9633 5.69716C19.0009 5.86012 20.5317 6.6561 21.5497 8.09013C19.7274 9.18432 18.826 10.7169 18.8439 12.6829C18.8603 14.2142 19.4209 15.4886 20.5227 16.5004C21.022 16.97 21.5796 17.333 22.2001 17.5907C22.0655 17.9774 21.9235 18.3477 21.7725 18.7033ZM17.0993 0.480137C17.0993 1.68041 16.6568 2.8011 15.7748 3.8384C14.7104 5.07155 13.4229 5.78412 12.0268 5.67168C12.009 5.52769 11.9987 5.37614 11.9987 5.21688C11.9987 4.06462 12.5049 2.83147 13.4038 1.82321C13.8526 1.3127 14.4234 0.888228 15.1155 0.549615C15.8062 0.216055 16.4595 0.031589 17.0739 0C17.0918 0.160458 17.0993 0.320926 17.0993 0.480121V0.480137Z"
@@ -152,7 +154,7 @@ export const transgateWrapper = `<div>
                 </a>
               </div>
               <div id="download-android" class="download-btn" style="border: 1px solid rgb(234, 236, 239)">
-              <a href="https://play.google.com/store/apps/details?id=com.zkpass.transgate" target="_blank" style="text-decoration: none; ">
+              <a href="${DownloadUrl.ANDROID}" target="_blank" style="text-decoration: none; ">
                 <svg width="24" height="24" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                   <path
                     d="M13.5589 11.0874L4.08203 1.59644H4.17441C4.98558 1.59644 5.68614 1.89129 6.81073 2.4993L16.7488 7.88083L13.5589 11.0874Z"
@@ -175,7 +177,7 @@ export const transgateWrapper = `<div>
                 </a>
               </div>
               <div id="download-extension" class="download-btn" style="border: 1px solid rgb(234, 236, 239)">
-                <a href="https://chromewebstore.google.com/detail/zkpass-transgate/afkoofjocpbclhnldmmaphappihehpma" target="_blank" style="text-decoration: none; ">
+                <a href="${DownloadUrl.EXTENSION}" target="_blank" style="text-decoration: none; ">
                 <svg style="width:24px; height: 24px;" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 48 48" height="48" width="48"><defs><linearGradient id="a" x1="3.2173" y1="15" x2="44.7812" y2="15" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#d93025"/><stop offset="1" stop-color="#ea4335"/></linearGradient><linearGradient id="b" x1="20.7219" y1="47.6791" x2="41.5039" y2="11.6837" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#fcc934"/><stop offset="1" stop-color="#fbbc04"/></linearGradient><linearGradient id="c" x1="26.5981" y1="46.5015" x2="5.8161" y2="10.506" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#1e8e3e"/><stop offset="1" stop-color="#34a853"/></linearGradient></defs><circle cx="24" cy="23.9947" r="12" style="fill:#fff"/><path d="M3.2154,36A24,24,0,1,0,12,3.2154,24,24,0,0,0,3.2154,36ZM34.3923,18A12,12,0,1,1,18,13.6077,12,12,0,0,1,34.3923,18Z" style="fill:none"/><path d="M24,12H44.7812a23.9939,23.9939,0,0,0-41.5639.0029L13.6079,30l.0093-.0024A11.9852,11.9852,0,0,1,24,12Z" style="fill:url(#a)"/><circle cx="24" cy="24" r="9.5" style="fill:#1a73e8"/><path d="M34.3913,30.0029,24.0007,48A23.994,23.994,0,0,0,44.78,12.0031H23.9989l-.0025.0093A11.985,11.985,0,0,1,34.3913,30.0029Z" style="fill:url(#b)"/><path d="M13.6086,30.0031,3.218,12.006A23.994,23.994,0,0,0,24.0025,48L34.3931,30.0029l-.0067-.0068a11.9852,11.9852,0,0,1-20.7778.007Z" style="fill:url(#c)"/></svg>
                 <div>Download TranGate</div>
                 </a>
@@ -280,7 +282,7 @@ export const mobileDialog = `<div>
     margin-top: 20px;            
       }
     }
-    #loading-box, #complete-box{
+    #${DomElementId.LOADING}, #${DomElementId.COMPLETE}{
       display: flex;
       align-items: center;
       align-content: center;
@@ -288,7 +290,7 @@ export const mobileDialog = `<div>
       justify-items: center;
       flex-direction: column;
     }
-    #complete-box{
+    #${DomElementId.COMPLETE}{
       display: none;
     }
     button {
@@ -304,17 +306,17 @@ export const mobileDialog = `<div>
   </style>
   <div id="zkpass-modal-wrapper">
     <div id="modal">
-      <div id="close-transgate" class="close-icon"></div>
+      <div id="${DomElementId.CLOSE}" class="close-icon"></div>
       <div id="modal-body">
-    <div id="loading-box">
+    <div id="${DomElementId.LOADING}">
       <div class="loading-text">
         <span class="loader"></span>
       </div>
       <p>Application for validation task</p>
     </div>
-    <div id="complete-box">
+    <div id="${DomElementId.COMPLETE}">
       <p>Task information preparation complete </p>
-      <button id="verify-button">Verify By TransGate Clip</button>
+      <button id="${DomElementId.VERIFY}">Verify By TransGate Clip</button>
     </div>            
       </div>
     </div>

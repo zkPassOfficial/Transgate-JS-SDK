@@ -1,5 +1,6 @@
 import Web3 from 'web3';
 import { transgateWrapper, mobileDialog } from './transgateWrapper';
+import { AndroidAppFallbackTimeoutMs, DeviceType, DomElementId } from './constants';
 
 /**
  * parse signature to v, r, s
@@ -44,11 +45,11 @@ export function getDeviceType() {
   const userAgent = navigator.userAgent || navigator.vendor;
 
   if (/iPhone|iPad|iPod/i.test(userAgent)) {
-    return 'iOS';
+    return DeviceType.IOS;
   } else if (/Android/i.test(userAgent)) {
-    return 'Android';
+    return DeviceType.ANDROID;
   } else {
-    return 'Browser'; //default to browser
+    return DeviceType.BROWSER; //default to browser
   }
 }
 
@@ -91,7 +92,7 @@ export function insertQrcodeMask() {
 
   modal.innerHTML = transgateWrapper;
 
-  const canvasElement = document.getElementById('zkpass-canvas');
+  const canvasElement = document.getElementById(DomElementId.CANVAS);
 
   if (!canvasElement) {
     modal.remove();
@@ -158,7 +159,7 @@ export function launchAppForAndroid(url: string, backupUrl: string) {
 
     const fallbackTimeout = setTimeout(() => {
       window.location.href = backupUrl;
-    }, 1500);
+    }, AndroidAppFallbackTimeoutMs);
 
     window.addEventListener('blur', () => {
       clearTimeout(fallbackTimeout);
@@ -198,11 +199,13 @@ export function genPublicFieldHash(publicFields = []) {
 }
 
 export function textToUnicodeSmart(str: string) {
-  return Array.from(str).map(ch => {
-    const code = ch.codePointAt(0);    
-    if (code! <= 0x7f) {
-      return ch;
-    }
-    return '\\u' + code?.toString(16).padStart(4, '0');
-  }).join('');
+  return Array.from(str)
+    .map((ch) => {
+      const code = ch.codePointAt(0);
+      if (code! <= 0x7f) {
+        return ch;
+      }
+      return '\\u' + code?.toString(16).padStart(4, '0');
+    })
+    .join('');
 }

@@ -1,25 +1,27 @@
-import Web3, { Address } from 'web3';
-import { Buffer } from 'buffer';
-import secp256k1 from 'secp256k1';
-import * as borsh from 'borsh';
-import sha3 from 'js-sha3';
-import { Address as TonAddress, beginCell } from '@ton/ton';
+import { Address } from 'web3';
 import QRCode from 'qrcode';
 
 import {
   server,
   extensionId,
-  SolanaTaskAllocator,
-  EVMTaskAllocator,
-  TonTaskPubKey,
   DefaultCallbackUrl,
   ScanResultUrl,
+  AppUrl,
+  AppleAppClipMeta,
+  DeviceType,
+  DomElementId,
+  ExtensionMessageType,
+  ExtensionProofAllocator,
+  ExtensionTaskUrl,
+  ExtensionTaskPreparationTimeoutMs,
+  LegacyChainTypeByVm,
+  QrCodeWidth,
+  SignatureVmValue,
+  WindowMessageTargetOrigin,
 } from './constants';
-import { EventDataType, Result, Task, TaskConfig, ProofVerifyParams, VerifyResult, SignatureVm } from './types';
+import { EventDataType, Task, TaskConfig, VerifyResult, SignatureVm } from './types';
 import { ErrorCode, TransgateError } from './error';
-import { Attest, SolanaTask } from './solanaInstruction';
 import {
-  hexToBytes,
   insertQrcodeMask,
   getDeviceType,
   injectMetaTag,
@@ -27,46 +29,53 @@ import {
   insertMobileDialog,
   removeMetaTag,
   launchAppForAndroid,
-  textToUnicodeSmart,
+  isTransgateAvailable as checkExtensionAvailability,
 } from './helper';
-import { signVerify } from '@ton/crypto';
 import { getAddress } from 'ethers';
-import { ExtensionProofAllocator, ExtensionTaskUrl } from './constants';
-import { ExtensionTask, ExtensionWallet, ProofRecord } from './types';
+import { ExtensionTask, ExtensionWallet } from './types';
 import { parseSignatureVm, verifyExtensionProof } from './proofVerifier';
+import { LegacyVerification } from './legacyVerifier';
+import { buildExtensionResult } from './resultUtils';
 
-const legacyChainTypeForVm = (vm: SignatureVm) => ({ evm: 'evm', svm: 'sol', tvm: 'ton' })[vm];
-
-export default class TransgateConnect {
+export default class TransgateConnect extends LegacyVerification {
   readonly appid: string;
   readonly baseServer: string;
   transgateAvailable?: boolean;
   terminal?: boolean;
   removeModal?: () => void;
   constructor(appid: string) {
+    super();
     this.appid = appid;
     this.baseServer = server;
     this.terminal = false;
   }
 
   async launch(schemaId: string, address?: Address) {
-    return await this.runTransgate({ schemaId, address, vm: 'evm' });
+    return await this.runTransgate({ schemaId, address, vm: SignatureVmValue.EVM });
   }
 
   async launchWithSolana(schemaId: string, address: string) {
-    return await this.runTransgate({ schemaId, address, vm: 'svm' });
+    return await this.runTransgate({ schemaId, address, vm: SignatureVmValue.SVM });
   }
 
   async launchWithTon(schemaId: string, address: string) {
-    return await this.runTransgate({ schemaId, address, vm: 'tvm' });
+    return await this.runTransgate({ schemaId, address, vm: SignatureVmValue.TVM });
   }
 
-  async runTransgate({ schemaId, address, vm = 'evm' }: { schemaId: string; address?: Address; vm?: SignatureVm }) {
+  async runTransgate({
+    schemaId,
+    address,
+    vm = SignatureVmValue.EVM,
+  }: {
+    schemaId: string;
+    address?: Address;
+    vm?: SignatureVm;
+  }) {
     vm = parseSignatureVm(vm);
     this.terminal = false;
     const device = getDeviceType();
 
-    if (device === 'iOS') {
+    if (device === DeviceType.IOS) {
       this.handleIOSModal();
     }
 
@@ -78,9 +87,7 @@ export default class TransgateConnect {
     }
 
     const callbackUrl = config.callbackUrl || DefaultCallbackUrl;
-    const appBasePath = 'https://app.zkpass.org/verify';
-
-    if (device === 'Browser' && this.transgateAvailable) {
+    if (device === DeviceType.BROWSER && this.transgateAvailable) {
       const schemaInfo = await this.requestSchemaInfo(`${this.baseServer}/schema/${schemaId}`);
       const wallet = await this.prepareExtensionWallet();
       const host = schemaInfo.APIs?.[0]?.host || (schemaInfo.website ? new URL(schemaInfo.website).hostname : '');
@@ -102,28 +109,25 @@ export default class TransgateConnect {
     }
 
     const taskInfo = await this.requestTaskInfo(config.task_rpc, config.token, schemaId, vm);
-    const chainType = legacyChainTypeForVm(vm);
+    const chainType = LegacyChainTypeByVm[vm];
 
     let query = `app_id=${this.appid}&task_id=${taskInfo.task}&schema_id=${schemaId}&chain_type=${chainType}&callback_url=${callbackUrl}`;
 
     if (address) {
       query = `${query}/&account=${address}`;
     }
-    if (device === 'Android') {
-      launchAppForAndroid(`zkpass://zkpass.com/verify?${query}`, `${appBasePath}?${query}`);
+    if (device === DeviceType.ANDROID) {
+      launchAppForAndroid(`${AppUrl.ANDROID_SCHEME}?${query}`, `${AppUrl.VERIFY}?${query}`);
       return await this.getProofInfo(taskInfo.task, callbackUrl);
-    } else if (device === 'iOS') {
-      removeMetaTag('apple-itunes-app');
-      injectMetaTag(
-        'apple-itunes-app',
-        'app-clip-bundle-id=com.zkpass.transgate.clip, app-id=6738957441 app-clip-display=card',
-      );
-      const clipUrl = `https://appclip.apple.com/id?p=com.zkpass.transgate.clip&${query}`;
+    } else if (device === DeviceType.IOS) {
+      removeMetaTag(AppleAppClipMeta.NAME);
+      injectMetaTag(AppleAppClipMeta.NAME, AppleAppClipMeta.CONTENT);
+      const clipUrl = `${AppUrl.APP_CLIP}&${query}`;
       this.handleIOSApp(clipUrl);
       return await this.getProofInfo(taskInfo.task, callbackUrl);
     } else {
       //support mobile but transgate is not available generate a qrcode
-      const launchUrl = `${appBasePath}?${query}`;
+      const launchUrl = `${AppUrl.VERIFY}?${query}`;
       return await this.runWithTransgateApp(launchUrl, taskInfo.task, callbackUrl);
     }
   }
@@ -133,11 +137,11 @@ export default class TransgateConnect {
       const { canvasElement, remove } = insertQrcodeMask();
 
       await QRCode.toCanvas(canvasElement, launchUrl, {
-        width: 240,
+        width: QrCodeWidth,
       });
 
-      const closeBtn = document.getElementById('close-transgate');
-      const zkpassCanvas = document.getElementById('zkpass-canvas');
+      const closeBtn = document.getElementById(DomElementId.CLOSE);
+      const zkpassCanvas = document.getElementById(DomElementId.CANVAS);
 
       closeBtn?.addEventListener('click', () => {
         remove();
@@ -174,7 +178,7 @@ export default class TransgateConnect {
     schemaInfo,
     taskRequestId,
     ephemeralAddress,
-    vm = 'evm',
+    vm = SignatureVmValue.EVM,
   }: {
     schemaId: string;
     taskInfo: ExtensionTask;
@@ -235,7 +239,7 @@ export default class TransgateConnect {
               throw new TransgateError(ErrorCode.ILLEGAL_NODE, 'Proof signature VM does not match the requested VM.');
             }
             verifyExtensionProof(signature, record);
-            resolve(this.buildExtensionResult(message, taskInfo, record, signature));
+            resolve(buildExtensionResult(message, taskInfo, record, signature));
           } catch (error) {
             reject(error instanceof TransgateError ? error : new TransgateError(ErrorCode.ILLEGAL_NODE, error));
           }
@@ -268,11 +272,11 @@ export default class TransgateConnect {
   private launchTransgate(taskInfo: any, address?: Address) {
     window?.postMessage(
       {
-        type: 'AUTH_ZKPASS',
+        type: ExtensionMessageType.AUTH,
         mintAccount: address,
         ...taskInfo,
       },
-      '*',
+      WindowMessageTargetOrigin,
     );
   }
 
@@ -304,15 +308,15 @@ export default class TransgateConnect {
       const timeout = setTimeout(() => {
         cleanup();
         reject(new TransgateError(ErrorCode.REQUEST_TIMEOUT, 'Extension task preparation timed out.'));
-      }, 10000);
+      }, ExtensionTaskPreparationTimeoutMs);
       window.addEventListener('message', listener);
       window.postMessage(
         {
-          type: 'PREPARE_ZKPASS_TASK',
+          type: ExtensionMessageType.PREPARE_TASK,
           appid: this.appid,
           taskRequestId,
         },
-        '*',
+        WindowMessageTargetOrigin,
       );
     });
   }
@@ -332,7 +336,7 @@ export default class TransgateConnect {
         token,
         schema_id: schemaId,
         app_id: this.appid,
-        chain_type: legacyChainTypeForVm(vm),
+        chain_type: LegacyChainTypeByVm[vm],
         debug: false,
       }),
     });
@@ -484,7 +488,7 @@ export default class TransgateConnect {
   handleIOSModal() {
     const { remove } = insertMobileDialog();
     this.removeModal = remove;
-    const closeBtn = document.getElementById('close-transgate');
+    const closeBtn = document.getElementById(DomElementId.CLOSE);
     closeBtn?.addEventListener('click', () => {
       remove();
       this.terminal = true;
@@ -492,10 +496,10 @@ export default class TransgateConnect {
   }
 
   handleIOSApp(clipUrl: string) {
-    const loading_box = document.getElementById('loading-box');
+    const loading_box = document.getElementById(DomElementId.LOADING);
     loading_box?.remove();
-    const complete_box = document.getElementById('complete-box');
-    const verify_button = document.getElementById('verify-button');
+    const complete_box = document.getElementById(DomElementId.COMPLETE);
+    const verify_button = document.getElementById(DomElementId.VERIFY);
     if (complete_box) {
       complete_box.style.display = 'flex';
       verify_button?.addEventListener('click', () => {
@@ -504,257 +508,9 @@ export default class TransgateConnect {
     }
   }
 
-  checkTaskInfo(vm: SignatureVm, task: string, schema: string, validatorAddress: string, signature: string) {
-    if (vm === 'svm') {
-      return this.checkTaskInfoForSolana(task, schema, validatorAddress, signature);
-    } else if (vm === 'tvm') {
-      return this.checkTaskInfoForTon(task, schema, validatorAddress, signature);
-    }
-
-    const taskHex = Web3.utils.stringToHex(task);
-    const schemaHex = Web3.utils.stringToHex(schema);
-
-    return this.checkTaskInfoForEVM(taskHex, schemaHex, validatorAddress, signature);
-  }
-
-  checkTaskInfoForSolana(task: string, schema: string, validatorAddress: string, signature: string) {
-    const sig_bytes = hexToBytes(signature.slice(2));
-
-    const signatureBytes = sig_bytes.slice(0, 64);
-    const recoverId = Array.from(sig_bytes.slice(64))[0];
-
-    const plaintext = borsh.serialize(SolanaTask, {
-      task: task,
-      schema: schema,
-      notary: validatorAddress,
-    });
-
-    const plaintextHash = Buffer.from(sha3.keccak_256.digest(Buffer.from(plaintext)));
-
-    const address = secp256k1.ecdsaRecover(signatureBytes, recoverId, plaintextHash, false);
-
-    return SolanaTaskAllocator === sha3.keccak_256.hex(address.slice(1));
-  }
-
-  checkTaskInfoForTon(task: string, schema: string, validatorAddress: string, signature: string) {
-    const taskCell = beginCell()
-      .storeBuffer(Buffer.from(task, 'ascii'))
-      .storeBuffer(Buffer.from(schema, 'ascii'))
-      .storeBuffer(Buffer.from(validatorAddress, 'hex'))
-      .endCell();
-    const taskVerify = signVerify(taskCell.hash(), Buffer.from(signature, 'hex'), Buffer.from(TonTaskPubKey, 'hex'));
-    return taskVerify;
-  }
-
-  checkTaskInfoForEVM(task: string, schema: string, validatorAddress: string, signature: string) {
-    const web3 = new Web3();
-
-    const encodeParams = web3.eth.abi.encodeParameters(
-      ['bytes32', 'bytes32', 'address'],
-      [task, schema, validatorAddress],
-    );
-    const paramsHash = Web3.utils.soliditySha3(encodeParams) as string;
-
-    const signedAllocatorAddress = web3.eth.accounts.recover(paramsHash, signature);
-
-    return EVMTaskAllocator === signedAllocatorAddress;
-  }
-
-  /**
-   * check the proof result by signature VM
-   * @param vm
-   * @param schema
-   * @param proofResult
-   * @returns
-   */
-  verifyProofMessageSignature(vm: SignatureVm, schema: string, proofResult: Result) {
-    const { taskId, publicFieldsHash, uHash, validatorAddress, validatorSignature, recipient } = proofResult;
-
-    const taskHex = Web3.utils.stringToHex(taskId) as string;
-    const schemaHex = Web3.utils.stringToHex(schema) as string;
-
-    if (vm === 'svm') {
-      const rec = recipient as string;
-
-      return this.verifyMessageSignatureForSolana({
-        taskId,
-        uHash,
-        validatorAddress,
-        schema,
-        validatorSignature,
-        recipient: rec,
-        publicFieldsHash,
-      });
-    } else if (vm === 'tvm') {
-      const rec = recipient as string;
-      return this.verifyMessageSignatureForTon({
-        taskId,
-        uHash,
-        validatorAddress,
-        schema,
-        validatorSignature,
-        recipient: rec,
-        publicFieldsHash,
-      });
-    }
-
-    return this.verifyEVMMessageSignature(
-      taskHex,
-      schemaHex,
-      uHash,
-      publicFieldsHash,
-      validatorSignature,
-      validatorAddress,
-      recipient,
-    );
-  }
-
-  verifyEVMMessageSignature(
-    taskId: string,
-    schema: string,
-    nullifier: string,
-    publicFieldsHash: string,
-    signature: string,
-    originAddress: string,
-    recipient?: string,
-  ) {
-    const web3 = new Web3();
-
-    const types = ['bytes32', 'bytes32', 'bytes32', 'bytes32'];
-    const values = [taskId, schema, nullifier, publicFieldsHash];
-
-    if (recipient) {
-      types.push('address');
-      values.push(recipient);
-    }
-
-    const encodeParams = web3.eth.abi.encodeParameters(types, values);
-
-    const paramsHash = Web3.utils.soliditySha3(encodeParams) as string;
-
-    const nodeAddress = web3.eth.accounts.recover(paramsHash, signature);
-    return nodeAddress === originAddress;
-  }
-  /**
-   * check signature is matched with task info
-   * @param params
-   * @returns
-   */
-  verifyMessageSignatureForSolana(params: ProofVerifyParams): boolean {
-    const { taskId, uHash, validatorAddress, schema, validatorSignature, recipient, publicFieldsHash } = params;
-
-    const sig_bytes = hexToBytes(validatorSignature.slice(2));
-
-    const signatureBytes = sig_bytes.slice(0, 64);
-    const recoverId = Array.from(sig_bytes.slice(64))[0];
-
-    const plaintext = borsh.serialize(Attest, {
-      task: taskId,
-      nullifier: uHash,
-      schema,
-      recipient,
-      publicFieldsHash,
-    });
-
-    const plaintextHash = Buffer.from(sha3.keccak_256.digest(Buffer.from(plaintext)));
-
-    const address = secp256k1.ecdsaRecover(signatureBytes, recoverId, plaintextHash, false);
-
-    return validatorAddress === sha3.keccak_256.hex(address.slice(1));
-  }
-  private buildResult(
-    data: VerifyResult,
-    taskInfo: Task,
-    publicData: string,
-    allocatorAddress: string,
-    recipient?: string,
-  ): Result {
-    const { publicFields, taskId, nullifierHash, signature } = data;
-    const { node_address: nodeAddress, alloc_signature: allocSignature } = taskInfo;
-
-    const publicFieldsHash = Web3.utils.soliditySha3(
-      !!publicData ? Web3.utils.stringToHex(textToUnicodeSmart(publicData)) : Web3.utils.utf8ToHex('1'),
-    ) as string;
-
-    return {
-      taskId,
-      publicFields,
-      allocatorAddress,
-      publicFieldsHash,
-      allocatorSignature: allocSignature,
-      uHash: nullifierHash,
-      validatorAddress: nodeAddress,
-      validatorSignature: signature,
-      recipient,
-    };
-  }
-
-  private buildExtensionResult(
-    data: VerifyResult,
-    taskInfo: ExtensionTask,
-    record: ProofRecord,
-    signature: string,
-  ): Result {
-    const publicFields = (data.publicFields || []).map((field: any) => {
-      if (!field || typeof field !== 'object' || Array.isArray(field)) {
-        return field;
-      }
-      const publicField = { ...field };
-      delete publicField.str;
-      return publicField;
-    });
-
-    return {
-      taskId: record.taskId,
-      publicFields,
-      allocatorAddress: ExtensionProofAllocator,
-      allocatorSignature: taskInfo.signature,
-      publicFieldsHash: record.publicDataHash,
-      uHash: record.uHash,
-      validatorAddress: record.validatorAddress,
-      validatorSignature: signature,
-      recipient: record.owner,
-    };
-  }
-
-  verifyMessageSignatureForTon(params: ProofVerifyParams): boolean {
-    const { taskId, uHash, validatorAddress, schema, validatorSignature, recipient, publicFieldsHash } = params;
-
-    const attestationCell = beginCell()
-      .storeRef(
-        beginCell()
-          .storeBuffer(Buffer.from(taskId, 'ascii'))
-          .storeBuffer(Buffer.from(schema, 'ascii'))
-          .storeBuffer(Buffer.from(uHash.slice(2), 'hex'))
-          .endCell(),
-      )
-      .storeAddress(TonAddress.parse(recipient))
-      .storeRef(
-        beginCell()
-          .storeBuffer(Buffer.from(publicFieldsHash.slice(2), 'hex'))
-          .endCell(),
-      )
-      .endCell();
-    const attestationVerify = signVerify(
-      attestationCell.hash(),
-      Buffer.from(validatorSignature.slice(2), 'hex'),
-      Buffer.from(validatorAddress, 'hex'),
-    );
-
-    return attestationVerify;
-  }
-
   async isTransgateAvailable() {
-    try {
-      const url = `chrome-extension://${extensionId}/images/icon-16.png`;
-      const { statusText } = await fetch(url);
-      if (statusText === 'OK') {
-        this.transgateAvailable = true;
-        return true;
-      }
-      return false;
-    } catch (error) {
-      return false;
-    }
+    const available = await checkExtensionAvailability(extensionId);
+    this.transgateAvailable = available;
+    return available;
   }
 }

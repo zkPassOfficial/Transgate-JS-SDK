@@ -12,12 +12,15 @@ import {
 import { serialize } from 'borsh';
 import { beginCell } from '@ton/core';
 import { ProofRecord, SignatureVm } from './types';
+import { SignatureVmValue, SupportedSignatureVms } from './constants';
+
+type CompactSignatureVm = Exclude<SignatureVm, typeof SignatureVmValue.EVM>;
 
 export function parseSignatureVm(vm: unknown): SignatureVm {
-  if (vm !== 'evm' && vm !== 'svm' && vm !== 'tvm') {
+  if (!SupportedSignatureVms.includes(vm as SignatureVm)) {
     throw new Error(`Invalid signature VM: ${String(vm)}`);
   }
-  return vm;
+  return vm as SignatureVm;
 }
 
 function canonicalFields(record: ProofRecord) {
@@ -130,8 +133,8 @@ function verifyEvmProof(signature: string, fields: ReturnType<typeof canonicalFi
   return verifyMessage(getBytes(keccak256(encoded)), hexlify(bytes));
 }
 
-function verifyCompactProof(signature: string, fields: ReturnType<typeof canonicalFields>, vm: 'svm' | 'tvm') {
-  const digest = vm === 'svm' ? buildSvmDigest(fields) : buildTvmDigest(fields);
+function verifyCompactProof(signature: string, fields: ReturnType<typeof canonicalFields>, vm: CompactSignatureVm) {
+  const digest = vm === SignatureVmValue.SVM ? buildSvmDigest(fields) : buildTvmDigest(fields);
   return recoverAddress(digest, compactSignature(signature, vm));
 }
 
@@ -141,11 +144,11 @@ export function verifyExtensionProof(signature: string, record: ProofRecord): st
   let recoveredAddress: string;
 
   switch (vm) {
-    case 'evm':
+    case SignatureVmValue.EVM:
       recoveredAddress = verifyEvmProof(signature, fields);
       break;
-    case 'svm':
-    case 'tvm':
+    case SignatureVmValue.SVM:
+    case SignatureVmValue.TVM:
       recoveredAddress = verifyCompactProof(signature, fields, vm);
       break;
   }
