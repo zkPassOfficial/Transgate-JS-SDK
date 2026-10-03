@@ -7,8 +7,6 @@ export enum EventDataType {
   'TRANSGATE_TASK_READY' = 'TRANSGATE_TASK_READY',
 }
 
-export declare type ChainType = 'evm' | 'sol' | 'ton';
-
 export declare type SignatureVm = 'evm' | 'svm' | 'tvm';
 
 export interface TaskConfig {
@@ -53,7 +51,7 @@ export interface ProofRecord {
   tlsHash: string;
   zkpHash: string;
   publicInputHash: string;
-  vm?: SignatureVm;
+  vm: SignatureVm;
 }
 
 export interface ZkpResponse {

@@ -13,6 +13,13 @@ import { serialize } from 'borsh';
 import { beginCell } from '@ton/core';
 import { ProofRecord, SignatureVm } from './types';
 
+export function parseSignatureVm(vm: unknown): SignatureVm {
+  if (vm !== 'evm' && vm !== 'svm' && vm !== 'tvm') {
+    throw new Error(`Invalid signature VM: ${String(vm)}`);
+  }
+  return vm;
+}
+
 function canonicalFields(record: ProofRecord) {
   return {
     taskId: id(record.taskId),
@@ -39,6 +46,14 @@ function compactSignature(signature: string, vm: SignatureVm) {
     s: hexlify(bytes.slice(32, 64)),
     v: 27 + bytes[64],
   });
+}
+
+function signatureBytes(signature: string) {
+  const bytes = getBytes(signature.startsWith('0x') ? signature : `0x${signature}`);
+  if (bytes.length !== 65) {
+    throw new Error('Invalid signature: expected 65 bytes');
+  }
+  return bytes;
 }
 
 function buildSvmDigest(fields: ReturnType<typeof canonicalFields>) {
@@ -103,21 +118,36 @@ function buildTvmDigest(fields: ReturnType<typeof canonicalFields>) {
   return hexlify(cell.hash());
 }
 
+function verifyEvmProof(signature: string, fields: ReturnType<typeof canonicalFields>) {
+  const bytes = signatureBytes(signature);
+  if (bytes[64] !== 27 && bytes[64] !== 28) {
+    throw new Error('Invalid EVM signature: v must be 27 or 28');
+  }
+  const encoded = AbiCoder.defaultAbiCoder().encode(
+    ['bytes32', 'bytes32', 'address', 'address', 'string', 'uint64', ...Array(5).fill('bytes32')],
+    Object.values(fields),
+  );
+  return verifyMessage(getBytes(keccak256(encoded)), hexlify(bytes));
+}
+
+function verifyCompactProof(signature: string, fields: ReturnType<typeof canonicalFields>, vm: 'svm' | 'tvm') {
+  const digest = vm === 'svm' ? buildSvmDigest(fields) : buildTvmDigest(fields);
+  return recoverAddress(digest, compactSignature(signature, vm));
+}
+
 export function verifyExtensionProof(signature: string, record: ProofRecord): string {
   const fields = canonicalFields(record);
-  const vm = record.vm ?? 'evm';
-  const signatureHex = signature.startsWith('0x') ? signature : `0x${signature}`;
+  const vm = parseSignatureVm(record.vm);
   let recoveredAddress: string;
 
-  if (vm === 'evm') {
-    const encoded = AbiCoder.defaultAbiCoder().encode(
-      ['bytes32', 'bytes32', 'address', 'address', 'string', 'uint64', ...Array(5).fill('bytes32')],
-      Object.values(fields),
-    );
-    recoveredAddress = verifyMessage(getBytes(keccak256(encoded)), signatureHex);
-  } else {
-    const digest = vm === 'svm' ? buildSvmDigest(fields) : buildTvmDigest(fields);
-    recoveredAddress = recoverAddress(digest, compactSignature(signatureHex, vm));
+  switch (vm) {
+    case 'evm':
+      recoveredAddress = verifyEvmProof(signature, fields);
+      break;
+    case 'svm':
+    case 'tvm':
+      recoveredAddress = verifyCompactProof(signature, fields, vm);
+      break;
   }
 
   if (getAddress(recoveredAddress) !== fields.validatorAddress) {
@@ -125,6 +155,3 @@ export function verifyExtensionProof(signature: string, record: ProofRecord): st
   }
   return recoveredAddress;
 }
-
-export const signatureVmForChain = (chainType: 'evm' | 'sol' | 'ton'): SignatureVm =>
-  (({ evm: 'evm', sol: 'svm', ton: 'tvm' }) as const)[chainType];

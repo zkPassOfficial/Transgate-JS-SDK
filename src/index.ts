@@ -15,7 +15,7 @@ import {
   DefaultCallbackUrl,
   ScanResultUrl,
 } from './constants';
-import { EventDataType, Result, Task, TaskConfig, ProofVerifyParams, VerifyResult, ChainType } from './types';
+import { EventDataType, Result, Task, TaskConfig, ProofVerifyParams, VerifyResult, SignatureVm } from './types';
 import { ErrorCode, TransgateError } from './error';
 import { Attest, SolanaTask } from './solanaInstruction';
 import {
@@ -33,7 +33,9 @@ import { signVerify } from '@ton/crypto';
 import { getAddress } from 'ethers';
 import { ExtensionProofAllocator, ExtensionTaskUrl } from './constants';
 import { ExtensionTask, ExtensionWallet, ProofRecord } from './types';
-import { signatureVmForChain, verifyExtensionProof } from './proofVerifier';
+import { parseSignatureVm, verifyExtensionProof } from './proofVerifier';
+
+const legacyChainTypeForVm = (vm: SignatureVm) => ({ evm: 'evm', svm: 'sol', tvm: 'ton' })[vm];
 
 export default class TransgateConnect {
   readonly appid: string;
@@ -48,26 +50,19 @@ export default class TransgateConnect {
   }
 
   async launch(schemaId: string, address?: Address) {
-    return await this.runTransgate({ schemaId, address, chainType: 'evm' });
+    return await this.runTransgate({ schemaId, address, vm: 'evm' });
   }
 
   async launchWithSolana(schemaId: string, address: string) {
-    return await this.runTransgate({ schemaId, address, chainType: 'sol' });
+    return await this.runTransgate({ schemaId, address, vm: 'svm' });
   }
 
   async launchWithTon(schemaId: string, address: string) {
-    return await this.runTransgate({ schemaId, address, chainType: 'ton' });
+    return await this.runTransgate({ schemaId, address, vm: 'tvm' });
   }
 
-  async runTransgate({
-    schemaId,
-    address,
-    chainType = 'evm',
-  }: {
-    schemaId: string;
-    address?: Address;
-    chainType?: ChainType;
-  }) {
+  async runTransgate({ schemaId, address, vm = 'evm' }: { schemaId: string; address?: Address; vm?: SignatureVm }) {
+    vm = parseSignatureVm(vm);
     this.terminal = false;
     const device = getDeviceType();
 
@@ -102,11 +97,12 @@ export default class TransgateConnect {
         schemaInfo,
         taskRequestId: wallet.taskRequestId,
         ephemeralAddress: wallet.ephemeralAddress,
-        chainType,
+        vm,
       });
     }
 
-    const taskInfo = await this.requestTaskInfo(config.task_rpc, config.token, schemaId, chainType);
+    const taskInfo = await this.requestTaskInfo(config.task_rpc, config.token, schemaId, vm);
+    const chainType = legacyChainTypeForVm(vm);
 
     let query = `app_id=${this.appid}&task_id=${taskInfo.task}&schema_id=${schemaId}&chain_type=${chainType}&callback_url=${callbackUrl}`;
 
@@ -178,7 +174,7 @@ export default class TransgateConnect {
     schemaInfo,
     taskRequestId,
     ephemeralAddress,
-    chainType = 'evm',
+    vm = 'evm',
   }: {
     schemaId: string;
     taskInfo: ExtensionTask;
@@ -186,8 +182,9 @@ export default class TransgateConnect {
     taskRequestId: string;
     ephemeralAddress: string;
     address?: Address;
-    chainType?: ChainType;
+    vm?: SignatureVm;
   }) {
+    vm = parseSignatureVm(vm);
     const extensionParams = {
       ...schemaInfo,
       appid: this.appid,
@@ -195,7 +192,7 @@ export default class TransgateConnect {
       taskInfo,
       taskRequestId,
       ephemeralAddress,
-      vm: signatureVmForChain(chainType),
+      vm,
       nodeAddress: taskInfo.node_address || taskInfo.validator_address,
       nodeHost: taskInfo.node_host || taskInfo.nodeHost || schemaInfo.node_host || schemaInfo.nodeHost,
       nodePK: taskInfo.node_pk || taskInfo.nodePK || schemaInfo.node_pk || schemaInfo.nodePK,
@@ -234,11 +231,8 @@ export default class TransgateConnect {
             if (expectedValidator && getAddress(record.validatorAddress) !== getAddress(expectedValidator)) {
               throw new TransgateError(ErrorCode.ILLEGAL_NODE, 'Proof validator does not match the allocated node.');
             }
-            if ((record.vm ?? 'evm') !== signatureVmForChain(chainType)) {
-              throw new TransgateError(
-                ErrorCode.ILLEGAL_NODE,
-                'Proof signature VM does not match the requested chain.',
-              );
+            if (record.vm !== vm) {
+              throw new TransgateError(ErrorCode.ILLEGAL_NODE, 'Proof signature VM does not match the requested VM.');
             }
             verifyExtensionProof(signature, record);
             resolve(this.buildExtensionResult(message, taskInfo, record, signature));
@@ -328,7 +322,7 @@ export default class TransgateConnect {
    * @param {*} schemaId string schema id
    * @returns
    */
-  private async requestTaskInfo(taskUrl: string, token: string, schemaId: string, chainType: ChainType): Promise<Task> {
+  private async requestTaskInfo(taskUrl: string, token: string, schemaId: string, vm: SignatureVm): Promise<Task> {
     const response = await fetch(`https://${taskUrl}`, {
       method: 'POST',
       headers: {
@@ -338,7 +332,7 @@ export default class TransgateConnect {
         token,
         schema_id: schemaId,
         app_id: this.appid,
-        chain_type: chainType,
+        chain_type: legacyChainTypeForVm(vm),
         debug: false,
       }),
     });
@@ -510,10 +504,10 @@ export default class TransgateConnect {
     }
   }
 
-  checkTaskInfo(chainType: ChainType, task: string, schema: string, validatorAddress: string, signature: string) {
-    if (chainType === 'sol') {
+  checkTaskInfo(vm: SignatureVm, task: string, schema: string, validatorAddress: string, signature: string) {
+    if (vm === 'svm') {
       return this.checkTaskInfoForSolana(task, schema, validatorAddress, signature);
-    } else if (chainType === 'ton') {
+    } else if (vm === 'tvm') {
       return this.checkTaskInfoForTon(task, schema, validatorAddress, signature);
     }
 
@@ -567,19 +561,19 @@ export default class TransgateConnect {
   }
 
   /**
-   * check the proof result by chain type
-   * @param chainType
+   * check the proof result by signature VM
+   * @param vm
    * @param schema
    * @param proofResult
    * @returns
    */
-  verifyProofMessageSignature(chainType: ChainType, schema: string, proofResult: Result) {
+  verifyProofMessageSignature(vm: SignatureVm, schema: string, proofResult: Result) {
     const { taskId, publicFieldsHash, uHash, validatorAddress, validatorSignature, recipient } = proofResult;
 
     const taskHex = Web3.utils.stringToHex(taskId) as string;
     const schemaHex = Web3.utils.stringToHex(schema) as string;
 
-    if (chainType === 'sol') {
+    if (vm === 'svm') {
       const rec = recipient as string;
 
       return this.verifyMessageSignatureForSolana({
@@ -591,7 +585,7 @@ export default class TransgateConnect {
         recipient: rec,
         publicFieldsHash,
       });
-    } else if (chainType === 'ton') {
+    } else if (vm === 'tvm') {
       const rec = recipient as string;
       return this.verifyMessageSignatureForTon({
         taskId,

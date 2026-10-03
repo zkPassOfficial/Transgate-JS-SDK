@@ -3,7 +3,7 @@ const { test } = require('node:test');
 const { AbiCoder, Wallet, concat, getBytes, hexlify, id, keccak256 } = require('ethers');
 const { serialize } = require('borsh');
 const { beginCell } = require('@ton/core');
-const { signatureVmForChain, verifyExtensionProof } = require('../lib/proofVerifier');
+const { parseSignatureVm, verifyExtensionProof } = require('../lib/proofVerifier');
 const TransgateConnect = require('../lib').default;
 const { ExtensionProofAllocator, ExtensionTaskUrl } = require('../lib/constants');
 
@@ -109,10 +109,6 @@ async function sign(record) {
   return compactSign(hexlify(cell.hash()));
 }
 
-test('maps SDK chains to Extension signature VMs', () => {
-  assert.deepEqual(['evm', 'sol', 'ton'].map(signatureVmForChain), ['evm', 'svm', 'tvm']);
-});
-
 test('verifies the canonical Extension proof for every VM', async () => {
   for (const vm of ['evm', 'svm', 'tvm']) {
     const record = { ...baseRecord, vm };
@@ -120,10 +116,20 @@ test('verifies the canonical Extension proof for every VM', async () => {
   }
 });
 
+test('accepts only the documented VM values', () => {
+  for (const vm of ['evm', 'svm', 'tvm']) assert.equal(parseSignatureVm(vm), vm);
+  for (const vm of ['sol', 'ton', 'invalid', undefined]) {
+    assert.throws(() => parseSignatureVm(vm), /Invalid signature VM/);
+  }
+});
+
 test('rejects a proof whose signed record was changed', async () => {
   const record = { ...baseRecord, vm: 'evm' };
   const signature = await sign(record);
   assert.throws(() => verifyExtensionProof(signature, { ...record, taskId: 'other' }));
+  assert.throws(() => verifyExtensionProof(signature, { ...record, vm: 'invalid' }), /Invalid signature VM/);
+  const invalidV = `${signature.slice(0, -2)}00`;
+  assert.throws(() => verifyExtensionProof(invalidV, record), /v must be 27 or 28/);
 });
 
 test('obtains only the ephemeral public address from the Extension', async (t) => {
@@ -178,10 +184,10 @@ test('SDK applies for Extension taskInfo with the prepared address', async (t) =
   });
 });
 
-test('launches Extension with preallocated taskInfo and verifies its signed record', async (t) => {
+test('passes the requested VM to Extension and verifies that VM signature', async (t) => {
   const previousWindow = global.window;
   const listeners = new Set();
-  const record = { ...baseRecord, vm: 'evm' };
+  const record = { ...baseRecord, vm: 'svm' };
   const signature = await sign(record);
   const zkpResponse = {
     result: record,
@@ -198,7 +204,7 @@ test('launches Extension with preallocated taskInfo and verifies its signed reco
       assert.equal(message.type, 'AUTH_ZKPASS');
       assert.equal(message.taskInfo.task_id, record.taskId);
       assert.equal(message.taskRequestId, 'request-1');
-      assert.equal(message.vm, 'evm');
+      assert.equal(message.vm, 'svm');
       assert.equal('ephemeralPrivateKey' in message, false);
       setImmediate(() => {
         for (const listener of listeners) {
@@ -232,7 +238,7 @@ test('launches Extension with preallocated taskInfo and verifies its signed reco
     schemaInfo: { id: record.schemaId, nodeHost: 'node.example', nodePK: 'pk' },
     taskRequestId: 'request-1',
     ephemeralAddress: wallet.address,
-    chainType: 'evm',
+    vm: 'svm',
   });
   assert.equal(result.validatorAddress, wallet.address);
   assert.equal(result.allocatorAddress, ExtensionProofAllocator);
