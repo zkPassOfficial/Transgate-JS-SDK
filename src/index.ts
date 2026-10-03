@@ -19,7 +19,6 @@ import { EventDataType, Result, Task, TaskConfig, ProofVerifyParams, VerifyResul
 import { ErrorCode, TransgateError } from './error';
 import { Attest, SolanaTask } from './solanaInstruction';
 import {
-  getObjectValues,
   hexToBytes,
   insertQrcodeMask,
   getDeviceType,
@@ -31,6 +30,10 @@ import {
   textToUnicodeSmart,
 } from './helper';
 import { signVerify } from '@ton/crypto';
+import { getAddress } from 'ethers';
+import { ExtensionProofAllocator, ExtensionTaskUrl } from './constants';
+import { ExtensionTask, ExtensionWallet, ProofRecord } from './types';
+import { signatureVmForChain, verifyExtensionProof } from './proofVerifier';
 
 export default class TransgateConnect {
   readonly appid: string;
@@ -79,10 +82,31 @@ export default class TransgateConnect {
       throw new TransgateError(ErrorCode.ILLEGAL_SCHEMA_ID, 'Illegal schema id, please check your schema info');
     }
 
-    const taskInfo = await this.requestTaskInfo(config.task_rpc, config.token, schemaId, chainType);
-
     const callbackUrl = config.callbackUrl || DefaultCallbackUrl;
     const appBasePath = 'https://app.zkpass.org/verify';
+
+    if (device === 'Browser' && this.transgateAvailable) {
+      const schemaInfo = await this.requestSchemaInfo(`${this.baseServer}/schema/${schemaId}`);
+      const wallet = await this.prepareExtensionWallet();
+      const host = schemaInfo.APIs?.[0]?.host || (schemaInfo.website ? new URL(schemaInfo.website).hostname : '');
+      const taskInfo = await this.requestExtensionTaskInfo(
+        schemaId,
+        host,
+        wallet.ephemeralAddress,
+        address ? String(address) : undefined,
+      );
+      return await this.runTransgateExtension({
+        schemaId,
+        address,
+        taskInfo,
+        schemaInfo,
+        taskRequestId: wallet.taskRequestId,
+        ephemeralAddress: wallet.ephemeralAddress,
+        chainType,
+      });
+    }
+
+    const taskInfo = await this.requestTaskInfo(config.task_rpc, config.token, schemaId, chainType);
 
     let query = `app_id=${this.appid}&task_id=${taskInfo.task}&schema_id=${schemaId}&chain_type=${chainType}&callback_url=${callbackUrl}`;
 
@@ -101,9 +125,6 @@ export default class TransgateConnect {
       const clipUrl = `https://appclip.apple.com/id?p=com.zkpass.transgate.clip&${query}`;
       this.handleIOSApp(clipUrl);
       return await this.getProofInfo(taskInfo.task, callbackUrl);
-    } else if (this.transgateAvailable) {
-      //support mobile but transgate is available and not mobile
-      return await this.runTransgateExtension({ schemaId, address, taskInfo, chainType });
     } else {
       //support mobile but transgate is not available generate a qrcode
       const launchUrl = `${appBasePath}?${query}`;
@@ -154,45 +175,35 @@ export default class TransgateConnect {
     schemaId,
     address,
     taskInfo,
+    schemaInfo,
+    taskRequestId,
+    ephemeralAddress,
     chainType = 'evm',
   }: {
     schemaId: string;
-    taskInfo: Task;
+    taskInfo: ExtensionTask;
+    schemaInfo: any;
+    taskRequestId: string;
+    ephemeralAddress: string;
     address?: Address;
     chainType?: ChainType;
   }) {
-    const schemaUrl = `${this.baseServer}/schema/${schemaId}`;
-    const schemaInfo = await this.requestSchemaInfo(schemaUrl);
-    console.log('runTransgateExtension address', address);
-    const {
-      task,
-      alloc_address: allocatorAddress,
-      alloc_signature: signature,
-      node_address: nodeAddress,
-      node_host: nodeHost,
-      node_pk: nodePK,
-    } = taskInfo;
-
     const extensionParams = {
-      task,
-      allocatorAddress,
-      nodeAddress,
-      nodeHost,
-      nodePK,
-      signature,
       ...schemaInfo,
       appid: this.appid,
+      task: taskInfo.task_id,
+      taskInfo,
+      taskRequestId,
+      ephemeralAddress,
+      vm: signatureVmForChain(chainType),
+      nodeAddress: taskInfo.node_address || taskInfo.validator_address,
+      nodeHost: taskInfo.node_host || taskInfo.nodeHost || schemaInfo.node_host || schemaInfo.nodeHost,
+      nodePK: taskInfo.node_pk || taskInfo.nodePK || schemaInfo.node_pk || schemaInfo.nodePK,
     };
-
-    if (!this.checkTaskInfo(chainType, task, schemaId, nodeAddress, signature)) {
-      return new TransgateError(ErrorCode.ILLEGAL_TASK_INFO, 'Please ensure you connected the legitimate task nodes');
-    }
-
-    this.launchTransgate(extensionParams, address);
 
     return new Promise((resolve, reject) => {
       const eventListener = (event: any) => {
-        if (event.data.id !== extensionParams.id) {
+        if (!event.data || event.data.id !== extensionParams.id) {
           return;
         }
         if (event.data.type === EventDataType.INVALID_SCHEMA) {
@@ -200,29 +211,39 @@ export default class TransgateConnect {
         } else if (event.data.type === EventDataType.GENERATE_ZKP_SUCCESS) {
           window?.removeEventListener('message', eventListener);
           const message: VerifyResult = event.data;
-          const { publicFields = [] } = message;
-          const publicData = getObjectValues(
-            publicFields.map((item: any) => {
-              delete item.str;
-              return item;
-            }),
-          );
-
-          console.log('publicData', publicData);
-          console.log('address', address);
-
-          const proofResult = this.buildResult(message, taskInfo, publicData, allocatorAddress, address);
-          console.log('proofResult', JSON.stringify(proofResult));
-          if (this.verifyProofMessageSignature(chainType, schemaId, proofResult)) {
-            console.log('proofResult', proofResult);
-            resolve(proofResult);
-          } else {
-            reject(
-              new TransgateError(
+          try {
+            const record = message.zkpResponse?.result ?? message.result;
+            const signature = message.zkpResponse?.signature ?? message.signature;
+            const allocatorAddress = message.zkpResponse?.allocator ?? message.allocatorAddress;
+            if (!record || record.taskId !== taskInfo.task_id || record.schemaId !== taskInfo.schema_id) {
+              throw new TransgateError(ErrorCode.ILLEGAL_TASK_INFO, 'Proof does not match the allocated task.');
+            }
+            if (!allocatorAddress) {
+              throw new TransgateError(ErrorCode.ILLEGAL_TASK_INFO, 'ZKP response did not include an allocator.');
+            }
+            if (
+              getAddress(allocatorAddress) !== getAddress(ExtensionProofAllocator) ||
+              getAddress(record.allocatorAddress) !== getAddress(ExtensionProofAllocator)
+            ) {
+              throw new TransgateError(
+                ErrorCode.ILLEGAL_TASK_INFO,
+                'Proof allocator does not match the trusted allocator.',
+              );
+            }
+            const expectedValidator = taskInfo.validator_address || taskInfo.node_address;
+            if (expectedValidator && getAddress(record.validatorAddress) !== getAddress(expectedValidator)) {
+              throw new TransgateError(ErrorCode.ILLEGAL_NODE, 'Proof validator does not match the allocated node.');
+            }
+            if ((record.vm ?? 'evm') !== signatureVmForChain(chainType)) {
+              throw new TransgateError(
                 ErrorCode.ILLEGAL_NODE,
-                'The verification node is not the same as the node assigned to the task.',
-              ),
-            );
+                'Proof signature VM does not match the requested chain.',
+              );
+            }
+            verifyExtensionProof(signature, record);
+            resolve(this.buildExtensionResult(message, taskInfo, record, signature));
+          } catch (error) {
+            reject(error instanceof TransgateError ? error : new TransgateError(ErrorCode.ILLEGAL_NODE, error));
           }
         } else if (event.data.type === EventDataType.NOT_MATCH_REQUIREMENTS) {
           window?.removeEventListener('message', eventListener);
@@ -246,6 +267,7 @@ export default class TransgateConnect {
         }
       };
       window?.addEventListener('message', eventListener);
+      this.launchTransgate(extensionParams, address);
     });
   }
 
@@ -258,6 +280,47 @@ export default class TransgateConnect {
       },
       '*',
     );
+  }
+
+  private prepareExtensionWallet(): Promise<ExtensionWallet> {
+    const taskRequestId =
+      typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    return new Promise((resolve, reject) => {
+      const cleanup = () => {
+        clearTimeout(timeout);
+        window.removeEventListener('message', listener);
+      };
+      const listener = (event: MessageEvent) => {
+        if (
+          event.source !== window ||
+          event.data?.type !== EventDataType.TRANSGATE_TASK_READY ||
+          event.data?.taskRequestId !== taskRequestId
+        ) {
+          return;
+        }
+        cleanup();
+        if (!event.data.ephemeralAddress) {
+          reject(new TransgateError(ErrorCode.TASK_RPC_ERROR, 'Extension did not provide an ephemeral address.'));
+          return;
+        }
+        resolve({ taskRequestId, ephemeralAddress: event.data.ephemeralAddress });
+      };
+      const timeout = setTimeout(() => {
+        cleanup();
+        reject(new TransgateError(ErrorCode.REQUEST_TIMEOUT, 'Extension task preparation timed out.'));
+      }, 10000);
+      window.addEventListener('message', listener);
+      window.postMessage(
+        {
+          type: 'PREPARE_ZKPASS_TASK',
+          appid: this.appid,
+          taskRequestId,
+        },
+        '*',
+      );
+    });
   }
 
   /**
@@ -285,6 +348,30 @@ export default class TransgateConnect {
     }
 
     throw new TransgateError(ErrorCode.TASK_RPC_ERROR, 'Request task info error');
+  }
+
+  private async requestExtensionTaskInfo(
+    schemaId: string,
+    host: string,
+    ephemeralAddress: string,
+    owner?: string,
+  ): Promise<ExtensionTask> {
+    const response = await fetch(ExtensionTaskUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        app_id: this.appid,
+        schema_id: schemaId,
+        host,
+        ephemeral_address: ephemeralAddress,
+        owner,
+      }),
+      cache: 'no-cache',
+    });
+    if (!response.ok) {
+      throw new TransgateError(ErrorCode.TASK_RPC_ERROR, `Request extension task info error: ${response.statusText}`);
+    }
+    return await response.json();
   }
 
   private async requestConfig(): Promise<TaskConfig> {
@@ -605,6 +692,34 @@ export default class TransgateConnect {
       validatorAddress: nodeAddress,
       validatorSignature: signature,
       recipient,
+    };
+  }
+
+  private buildExtensionResult(
+    data: VerifyResult,
+    taskInfo: ExtensionTask,
+    record: ProofRecord,
+    signature: string,
+  ): Result {
+    const publicFields = (data.publicFields || []).map((field: any) => {
+      if (!field || typeof field !== 'object' || Array.isArray(field)) {
+        return field;
+      }
+      const publicField = { ...field };
+      delete publicField.str;
+      return publicField;
+    });
+
+    return {
+      taskId: record.taskId,
+      publicFields,
+      allocatorAddress: ExtensionProofAllocator,
+      allocatorSignature: taskInfo.signature,
+      publicFieldsHash: record.publicDataHash,
+      uHash: record.uHash,
+      validatorAddress: record.validatorAddress,
+      validatorSignature: signature,
+      recipient: record.owner,
     };
   }
 

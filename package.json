@@ -6,6 +6,7 @@
   "types": "lib/index.d.ts",
   "scripts": {
     "build": "tsc",
+    "test": "npm run build && node --test tests/*.test.cjs",
     "format": "prettier --write \"src/**/*.ts\"",
     "lint": "tslint -p tsconfig.json",
     "prepare": "npm run build",
@@ -47,6 +48,7 @@
     "@ton/ton": "^15.0.0",
     "borsh": "^2.0.0",
     "buffer": "^6.0.3",
+    "ethers": "^6.17.0",
     "js-sha3": "^0.9.3",
     "qrcode": "^1.5.4",
     "secp256k1": "^5.0.0",
