@@ -4,6 +4,7 @@ const { AbiCoder, Wallet, concat, getBytes, hexlify, id, keccak256 } = require('
 const { serialize } = require('borsh');
 const { beginCell } = require('@ton/core');
 const { parseSignatureVm, verifyExtensionProof } = require('../lib/proofVerifier');
+const { ErrorCode, TransgateError } = require('../lib/error');
 const TransgateConnect = require('../lib').default;
 const { ExtensionProofAllocator, ExtensionTaskUrl } = require('../lib/constants');
 
@@ -119,8 +120,19 @@ test('verifies the canonical Extension proof for every VM', async () => {
 test('accepts only the documented VM values', () => {
   for (const vm of ['evm', 'svm', 'tvm']) assert.equal(parseSignatureVm(vm), vm);
   for (const vm of ['sol', 'ton', 'invalid', undefined]) {
-    assert.throws(() => parseSignatureVm(vm), /Invalid signature VM/);
+    assert.throws(() => parseSignatureVm(vm), /Expected one of: evm, svm, tvm/);
   }
+});
+
+test('returns SDK errors as standard Error instances with a readable cause', () => {
+  const cause = new Error('network unavailable');
+  const error = new TransgateError(ErrorCode.UNEXPECTED_ERROR, cause);
+
+  assert.ok(error instanceof Error);
+  assert.equal(error.name, 'TransgateError');
+  assert.equal(error.code, ErrorCode.UNEXPECTED_ERROR);
+  assert.equal(error.message, 'network unavailable');
+  assert.equal(error.cause, cause);
 });
 
 test('rejects a proof whose signed record was changed', async () => {
@@ -129,7 +141,7 @@ test('rejects a proof whose signed record was changed', async () => {
   assert.throws(() => verifyExtensionProof(signature, { ...record, taskId: 'other' }));
   assert.throws(() => verifyExtensionProof(signature, { ...record, vm: 'invalid' }), /Invalid signature VM/);
   const invalidV = `${signature.slice(0, -2)}00`;
-  assert.throws(() => verifyExtensionProof(invalidV, record), /v must be 27 or 28/);
+  assert.throws(() => verifyExtensionProof(invalidV, record), /Expected 27 or 28/);
 });
 
 test('obtains only the ephemeral public address from the Extension', async (t) => {
@@ -184,6 +196,24 @@ test('SDK applies for Extension taskInfo with the prepared address', async (t) =
   });
 });
 
+test('describes task allocation HTTP failures with schema and status', async (t) => {
+  const previousFetch = global.fetch;
+  global.fetch = async () => ({ ok: false, status: 503, statusText: 'Service Unavailable' });
+  t.after(() => {
+    global.fetch = previousFetch;
+  });
+
+  await assert.rejects(
+    new TransgateConnect('app').requestExtensionTaskInfo('schema-1', 'api.example', wallet.address),
+    (error) => {
+      assert.ok(error instanceof TransgateError);
+      assert.equal(error.code, ErrorCode.TASK_RPC_ERROR);
+      assert.match(error.message, /Extension task allocation for schema "schema-1" failed with HTTP 503/);
+      return true;
+    },
+  );
+});
+
 test('passes the requested VM to Extension and verifies that VM signature', async (t) => {
   const previousWindow = global.window;
   const listeners = new Set();
@@ -193,7 +223,6 @@ test('passes the requested VM to Extension and verifies that VM signature', asyn
     result: record,
     signature,
     validator: { source: 'zkp-service' },
-    allocator: record.allocatorAddress,
     data: { publicData: '0x1234' },
     requestId: 'zkp-request-1',
   };

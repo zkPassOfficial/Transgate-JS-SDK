@@ -9,16 +9,20 @@ export enum ErrorCode {
   'ILLEGAL_SCHEMA' = 100007,
   'NOT_MATCH_REQUIREMENTS' = 110001,
   'VERIFICATION_CANCELED' = 110002,
-  'UNEXPECTED_VERIFY_ERROR' = 110003,  
-  'UNEXPECTED_ERROR' = 120000,  
-  'REQUEST_TIMEOUT' = 120001  
+  'UNEXPECTED_VERIFY_ERROR' = 110003,
+  'UNEXPECTED_ERROR' = 120000,
+  'REQUEST_TIMEOUT' = 120001,
 }
 
-export class TransgateError {
-  code: number;
-  message: string;
-  constructor(code: ErrorCode, message: any) {
-    this.message = message;
+export class TransgateError extends Error {
+  readonly code: ErrorCode;
+  readonly cause?: unknown;
+
+  constructor(code: ErrorCode, message: unknown) {
+    const detail = message instanceof Error ? message.message : String(message);
+    super(detail);
     this.code = code;
+    this.name = 'TransgateError';
+    this.cause = message instanceof Error ? message : undefined;
   }
 }

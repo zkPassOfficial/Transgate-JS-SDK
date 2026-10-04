@@ -2,11 +2,6 @@ import Web3 from 'web3';
 import { transgateWrapper, mobileDialog } from './transgateWrapper';
 import { AndroidAppFallbackTimeoutMs, DeviceType, DomElementId } from './constants';
 
-/**
- * parse signature to v, r, s
- * @param signature
- * @returns
- */
 export const parseSignature = (signature: string) => {
   signature = signature.slice(2);
   return {
@@ -23,16 +18,14 @@ export const hexToBytes = (hex: string) => {
 };
 
 export function getObjectValues(json: any) {
-  let values: any = [];
+  const values: unknown[] = [];
 
   function recurse(obj: any) {
-    for (let key in obj) {
-      if (obj.hasOwnProperty(key)) {
-        if (typeof obj[key] === 'object' && obj[key] !== null) {
-          recurse(obj[key]); // it's a nested object, so we do it again
-        } else {
-          values.push(obj[key]); // it's not an object, so we just push the value
-        }
+    for (const key of Object.keys(obj)) {
+      if (typeof obj[key] === 'object' && obj[key] !== null) {
+        recurse(obj[key]);
+      } else {
+        values.push(obj[key]);
       }
     }
   }
@@ -48,12 +41,11 @@ export function getDeviceType() {
     return DeviceType.IOS;
   } else if (/Android/i.test(userAgent)) {
     return DeviceType.ANDROID;
-  } else {
-    return DeviceType.BROWSER; //default to browser
   }
+  return DeviceType.BROWSER;
 }
 
-export function insertMobileDialog() {
+function createOverlay(content: string) {
   const modal = document.createElement('div');
   modal.style.position = 'fixed';
   modal.style.top = '0';
@@ -67,36 +59,24 @@ export function insertMobileDialog() {
   modal.style.zIndex = '9999';
   modal.style.pointerEvents = 'auto';
 
-  document.getElementsByTagName('body')[0].appendChild(modal);
-  modal.innerHTML = mobileDialog;
+  modal.innerHTML = content;
+  document.body.appendChild(modal);
 
+  return modal;
+}
+
+export function insertMobileDialog() {
+  const modal = createOverlay(mobileDialog);
   return { remove: () => modal.remove() };
 }
 
 export function insertQrcodeMask() {
-  //create a modal to show the qrcode
-  const modal = document.createElement('div');
-  modal.style.position = 'fixed';
-  modal.style.top = '0';
-  modal.style.left = '0';
-  modal.style.width = '100%';
-  modal.style.height = '100%';
-  modal.style.backgroundColor = 'rgba(0,0,0,0.5)';
-  modal.style.display = 'flex';
-  modal.style.justifyContent = 'center';
-  modal.style.alignItems = 'center';
-  modal.style.zIndex = '9999';
-  modal.style.pointerEvents = 'auto';
-
-  document.getElementsByTagName('body')[0].appendChild(modal);
-
-  modal.innerHTML = transgateWrapper;
-
-  const canvasElement = document.getElementById(DomElementId.CANVAS);
+  const modal = createOverlay(transgateWrapper);
+  const canvasElement = document.getElementById(DomElementId.CANVAS) as HTMLCanvasElement | null;
 
   if (!canvasElement) {
     modal.remove();
-    throw new Error('generate qrcode failed');
+    throw new Error('Unable to display the verification QR code because its canvas element is missing.');
   }
 
   return { canvasElement, remove: () => modal.remove() };
@@ -122,76 +102,52 @@ export function removeMetaTag(name: string) {
   const metaCollection = Array.from(document.getElementsByTagName('meta')) || [];
 
   for (const meta of metaCollection) {
-    if (meta.name == name) {
+    if (meta.name === name) {
       meta.remove();
     }
   }
 }
 
-function isSafari() {
-  return (
-    navigator.vendor === 'Apple Computer, Inc.' &&
-    navigator.userAgent.includes('Safari') &&
-    !navigator.userAgent.includes('CriOS') &&
-    !navigator.userAgent.includes('FxiOS')
-  );
-}
-
 export async function isTransgateAvailable(extensionId: string) {
   try {
     const url = `chrome-extension://${extensionId}/images/icon-16.png`;
-    const { statusText } = await fetch(url);
-    if (statusText === 'OK') {
-      return true;
-    }
-    return false;
-  } catch (error) {
+    const response = await fetch(url);
+    return response.ok;
+  } catch {
     return false;
   }
 }
 
 export function launchAppForAndroid(url: string, backupUrl: string) {
-  try {
-    const iframe = document.createElement('iframe');
-    iframe.style.display = 'none';
-    iframe.src = url;
-    document.body.appendChild(iframe);
+  const iframe = document.createElement('iframe');
+  iframe.style.display = 'none';
+  iframe.src = url;
+  document.body.appendChild(iframe);
 
-    const fallbackTimeout = setTimeout(() => {
-      window.location.href = backupUrl;
-    }, AndroidAppFallbackTimeoutMs);
+  const fallbackTimeout = setTimeout(() => {
+    iframe.remove();
+    window.location.href = backupUrl;
+  }, AndroidAppFallbackTimeoutMs);
 
-    window.addEventListener('blur', () => {
+  window.addEventListener(
+    'blur',
+    () => {
       clearTimeout(fallbackTimeout);
       iframe.remove();
-    });
-  } catch (error) {
-    console.error('launchAppForAndroid error:', error);
-  }
+    },
+    { once: true },
+  );
 }
 
 export function genPublicFieldHash(publicFields = []) {
   const publicData = publicFields.map((item: any) => {
-    delete item.str;
-    return item;
-  });
-
-  let values: any = [];
-
-  function recurse(obj: any) {
-    for (let key in obj) {
-      if (obj.hasOwnProperty(key)) {
-        if (typeof obj[key] === 'object' && obj[key] !== null) {
-          recurse(obj[key]); // it's a nested object, so we do it again
-        } else {
-          values.push(obj[key]); // it's not an object, so we just push the value
-        }
-      }
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      return item;
     }
-  }
-
-  recurse(publicData);
-  const publicFieldStr = values.join('');
+    const { str, ...field } = item;
+    return field;
+  });
+  const publicFieldStr = getObjectValues(publicData);
 
   return Web3.utils.soliditySha3(
     !!publicFieldStr ? Web3.utils.stringToHex(publicFieldStr) : Web3.utils.utf8ToHex('1'),

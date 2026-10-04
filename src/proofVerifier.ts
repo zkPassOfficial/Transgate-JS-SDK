@@ -18,7 +18,7 @@ type CompactSignatureVm = Exclude<SignatureVm, typeof SignatureVmValue.EVM>;
 
 export function parseSignatureVm(vm: unknown): SignatureVm {
   if (!SupportedSignatureVms.includes(vm as SignatureVm)) {
-    throw new Error(`Invalid signature VM: ${String(vm)}`);
+    throw new Error(`Invalid signature VM "${String(vm)}". Expected one of: ${SupportedSignatureVms.join(', ')}.`);
   }
   return vm as SignatureVm;
 }
@@ -42,7 +42,7 @@ function canonicalFields(record: ProofRecord) {
 function compactSignature(signature: string, vm: SignatureVm) {
   const bytes = getBytes(signature.startsWith('0x') ? signature : `0x${signature}`);
   if (bytes.length !== 65 || bytes[64] > 1) {
-    throw new Error(`Invalid ${vm.toUpperCase()} signature`);
+    throw new Error(`Invalid ${vm.toUpperCase()} signature. Expected 65 bytes with a recovery id of 0 or 1.`);
   }
   return Signature.from({
     r: hexlify(bytes.slice(0, 32)),
@@ -54,7 +54,7 @@ function compactSignature(signature: string, vm: SignatureVm) {
 function signatureBytes(signature: string) {
   const bytes = getBytes(signature.startsWith('0x') ? signature : `0x${signature}`);
   if (bytes.length !== 65) {
-    throw new Error('Invalid signature: expected 65 bytes');
+    throw new Error(`Invalid proof signature length: expected 65 bytes, received ${bytes.length}.`);
   }
   return bytes;
 }
@@ -124,7 +124,7 @@ function buildTvmDigest(fields: ReturnType<typeof canonicalFields>) {
 function verifyEvmProof(signature: string, fields: ReturnType<typeof canonicalFields>) {
   const bytes = signatureBytes(signature);
   if (bytes[64] !== 27 && bytes[64] !== 28) {
-    throw new Error('Invalid EVM signature: v must be 27 or 28');
+    throw new Error(`Invalid EVM signature recovery value ${bytes[64]}. Expected 27 or 28.`);
   }
   const encoded = AbiCoder.defaultAbiCoder().encode(
     ['bytes32', 'bytes32', 'address', 'address', 'string', 'uint64', ...Array(5).fill('bytes32')],
@@ -154,7 +154,11 @@ export function verifyExtensionProof(signature: string, record: ProofRecord): st
   }
 
   if (getAddress(recoveredAddress) !== fields.validatorAddress) {
-    throw new Error('Recovered address does not match the assigned validator');
+    throw new Error(
+      `Proof signature was created by ${getAddress(recoveredAddress)}, not the assigned validator ${
+        fields.validatorAddress
+      }.`,
+    );
   }
   return recoveredAddress;
 }

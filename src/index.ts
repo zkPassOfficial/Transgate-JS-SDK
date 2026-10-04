@@ -37,6 +37,15 @@ import { parseSignatureVm, verifyExtensionProof } from './proofVerifier';
 import { LegacyVerification } from './legacyVerifier';
 import { buildExtensionResult } from './resultUtils';
 
+function describeError(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function describeHttpFailure(action: string, response: Response) {
+  const status = response.statusText ? `${response.status} ${response.statusText}` : String(response.status);
+  return `${action} failed with HTTP ${status}.`;
+}
+
 export default class TransgateConnect extends LegacyVerification {
   readonly appid: string;
   readonly baseServer: string;
@@ -82,8 +91,11 @@ export default class TransgateConnect extends LegacyVerification {
     this.transgateAvailable = await this.isTransgateAvailable();
 
     const config = await this.requestConfig();
-    if (config.schemas.findIndex((schema) => schema.schema_id === schemaId) === -1) {
-      throw new TransgateError(ErrorCode.ILLEGAL_SCHEMA_ID, 'Illegal schema id, please check your schema info');
+    if (!config.schemas.some((schema) => schema.schema_id === schemaId)) {
+      throw new TransgateError(
+        ErrorCode.ILLEGAL_SCHEMA_ID,
+        `Schema "${schemaId}" is not available for app "${this.appid}".`,
+      );
     }
 
     const callbackUrl = config.callbackUrl || DefaultCallbackUrl;
@@ -91,6 +103,12 @@ export default class TransgateConnect extends LegacyVerification {
       const schemaInfo = await this.requestSchemaInfo(`${this.baseServer}/schema/${schemaId}`);
       const wallet = await this.prepareExtensionWallet();
       const host = schemaInfo.APIs?.[0]?.host || (schemaInfo.website ? new URL(schemaInfo.website).hostname : '');
+      if (!host) {
+        throw new TransgateError(
+          ErrorCode.ILLEGAL_SCHEMA,
+          `Schema "${schemaId}" does not define a website or API host for task allocation.`,
+        );
+      }
       const taskInfo = await this.requestExtensionTaskInfo(
         schemaId,
         host,
@@ -114,7 +132,7 @@ export default class TransgateConnect extends LegacyVerification {
     let query = `app_id=${this.appid}&task_id=${taskInfo.task}&schema_id=${schemaId}&chain_type=${chainType}&callback_url=${callbackUrl}`;
 
     if (address) {
-      query = `${query}/&account=${address}`;
+      query = `${query}&account=${address}`;
     }
     if (device === DeviceType.ANDROID) {
       launchAppForAndroid(`${AppUrl.ANDROID_SCHEME}?${query}`, `${AppUrl.VERIFY}?${query}`);
@@ -125,11 +143,9 @@ export default class TransgateConnect extends LegacyVerification {
       const clipUrl = `${AppUrl.APP_CLIP}&${query}`;
       this.handleIOSApp(clipUrl);
       return await this.getProofInfo(taskInfo.task, callbackUrl);
-    } else {
-      //support mobile but transgate is not available generate a qrcode
-      const launchUrl = `${AppUrl.VERIFY}?${query}`;
-      return await this.runWithTransgateApp(launchUrl, taskInfo.task, callbackUrl);
     }
+    const launchUrl = `${AppUrl.VERIFY}?${query}`;
+    return await this.runWithTransgateApp(launchUrl, taskInfo.task, callbackUrl);
   }
 
   private async runWithTransgateApp(launchUrl: string, taskId: string, callbackUrl: string) {
@@ -141,21 +157,24 @@ export default class TransgateConnect extends LegacyVerification {
       });
 
       const closeBtn = document.getElementById(DomElementId.CLOSE);
-      const zkpassCanvas = document.getElementById(DomElementId.CANVAS);
+      const zkpassCanvas = document.getElementById(DomElementId.CANVAS) as HTMLCanvasElement | null;
 
       closeBtn?.addEventListener('click', () => {
         remove();
         this.terminal = true;
       });
 
-      this.getScanResult(taskId).then((taskUsed: unknown) => {
-        if (taskUsed) {
-          //@ts-ignore
-          const ctx = zkpassCanvas.getContext('2d');
-          ctx.filter = 'blur(5px)';
-          ctx.drawImage(zkpassCanvas, 0, 0);
-        }
-      });
+      void this.getScanResult(taskId)
+        .then((taskUsed: unknown) => {
+          if (taskUsed && zkpassCanvas) {
+            const ctx = zkpassCanvas.getContext('2d');
+            if (ctx) {
+              ctx.filter = 'blur(5px)';
+              ctx.drawImage(zkpassCanvas, 0, 0);
+            }
+          }
+        })
+        .catch(() => undefined);
 
       const proof = await this.getProofInfo(taskId, callbackUrl);
 
@@ -165,9 +184,15 @@ export default class TransgateConnect extends LegacyVerification {
       return proof;
     } catch (error) {
       if (this.terminal) {
-        throw new TransgateError(ErrorCode.VERIFICATION_CANCELED, 'User terminal the validation.');
+        throw new TransgateError(ErrorCode.VERIFICATION_CANCELED, 'Verification was canceled by the user.');
       }
-      throw new TransgateError(ErrorCode.UNEXPECTED_ERROR, error);
+      if (error instanceof TransgateError) {
+        throw error;
+      }
+      throw new TransgateError(
+        ErrorCode.UNEXPECTED_ERROR,
+        `Unable to complete app-based verification: ${describeError(error)}`,
+      );
     }
   }
 
@@ -188,7 +213,6 @@ export default class TransgateConnect extends LegacyVerification {
     address?: Address;
     vm?: SignatureVm;
   }) {
-    vm = parseSignatureVm(vm);
     const extensionParams = {
       ...schemaInfo,
       appid: this.appid,
@@ -203,63 +227,96 @@ export default class TransgateConnect extends LegacyVerification {
     };
 
     return new Promise((resolve, reject) => {
+      const cleanup = () => window?.removeEventListener('message', eventListener);
       const eventListener = (event: any) => {
         if (!event.data || event.data.id !== extensionParams.id) {
           return;
         }
         if (event.data.type === EventDataType.INVALID_SCHEMA) {
-          reject(new TransgateError(ErrorCode.ILLEGAL_SCHEMA, 'Incorrect schema information.'));
+          cleanup();
+          reject(
+            new TransgateError(
+              ErrorCode.ILLEGAL_SCHEMA,
+              `The TransGate extension rejected schema "${schemaId}" because its configuration is invalid.`,
+            ),
+          );
         } else if (event.data.type === EventDataType.GENERATE_ZKP_SUCCESS) {
-          window?.removeEventListener('message', eventListener);
+          cleanup();
           const message: VerifyResult = event.data;
           try {
             const record = message.zkpResponse?.result ?? message.result;
             const signature = message.zkpResponse?.signature ?? message.signature;
-            const allocatorAddress = message.zkpResponse?.allocator ?? message.allocatorAddress;
-            if (!record || record.taskId !== taskInfo.task_id || record.schemaId !== taskInfo.schema_id) {
-              throw new TransgateError(ErrorCode.ILLEGAL_TASK_INFO, 'Proof does not match the allocated task.');
-            }
-            if (!allocatorAddress) {
-              throw new TransgateError(ErrorCode.ILLEGAL_TASK_INFO, 'ZKP response did not include an allocator.');
-            }
-            if (
-              getAddress(allocatorAddress) !== getAddress(ExtensionProofAllocator) ||
-              getAddress(record.allocatorAddress) !== getAddress(ExtensionProofAllocator)
-            ) {
+            if (!record) {
               throw new TransgateError(
                 ErrorCode.ILLEGAL_TASK_INFO,
-                'Proof allocator does not match the trusted allocator.',
+                'The extension response does not contain a signed proof record.',
+              );
+            }
+            if (record.taskId !== taskInfo.task_id) {
+              throw new TransgateError(
+                ErrorCode.ILLEGAL_TASK_INFO,
+                `Proof task mismatch: expected "${taskInfo.task_id}", received "${record.taskId}".`,
+              );
+            }
+            if (record.schemaId !== taskInfo.schema_id) {
+              throw new TransgateError(
+                ErrorCode.ILLEGAL_TASK_INFO,
+                `Proof schema mismatch: expected "${taskInfo.schema_id}", received "${record.schemaId}".`,
+              );
+            }
+            if (getAddress(record.allocatorAddress) !== getAddress(ExtensionProofAllocator)) {
+              throw new TransgateError(
+                ErrorCode.ILLEGAL_TASK_INFO,
+                'The proof was not issued by the trusted allocator.',
               );
             }
             const expectedValidator = taskInfo.validator_address || taskInfo.node_address;
             if (expectedValidator && getAddress(record.validatorAddress) !== getAddress(expectedValidator)) {
-              throw new TransgateError(ErrorCode.ILLEGAL_NODE, 'Proof validator does not match the allocated node.');
+              throw new TransgateError(
+                ErrorCode.ILLEGAL_NODE,
+                `Proof validator mismatch: expected ${expectedValidator}, received ${record.validatorAddress}.`,
+              );
             }
             if (record.vm !== vm) {
-              throw new TransgateError(ErrorCode.ILLEGAL_NODE, 'Proof signature VM does not match the requested VM.');
+              throw new TransgateError(
+                ErrorCode.ILLEGAL_NODE,
+                `Proof VM mismatch: requested "${vm}", received "${record.vm}".`,
+              );
             }
             verifyExtensionProof(signature, record);
             resolve(buildExtensionResult(message, taskInfo, record, signature));
           } catch (error) {
-            reject(error instanceof TransgateError ? error : new TransgateError(ErrorCode.ILLEGAL_NODE, error));
+            reject(
+              error instanceof TransgateError
+                ? error
+                : new TransgateError(
+                    ErrorCode.ILLEGAL_NODE,
+                    `Proof signature verification failed: ${describeError(error)}`,
+                  ),
+            );
           }
         } else if (event.data.type === EventDataType.NOT_MATCH_REQUIREMENTS) {
-          window?.removeEventListener('message', eventListener);
-          reject(new TransgateError(ErrorCode.NOT_MATCH_REQUIREMENTS, 'The user does not meet the requirements.'));
+          cleanup();
+          reject(
+            new TransgateError(
+              ErrorCode.NOT_MATCH_REQUIREMENTS,
+              `The submitted data does not satisfy the requirements of schema "${schemaId}".`,
+            ),
+          );
         } else if (event.data.type === EventDataType.ILLEGAL_WINDOW_CLOSING) {
-          window?.removeEventListener('message', eventListener);
+          cleanup();
           reject(
             new TransgateError(
               ErrorCode.VERIFICATION_CANCELED,
-              'The user closes the window before finishing validation.',
+              'Verification was canceled because the TransGate window was closed before completion.',
             ),
           );
         } else if (event.data.type === EventDataType.UNEXPECTED_VERIFY_ERROR) {
-          window?.removeEventListener('message', eventListener);
+          cleanup();
           reject(
             new TransgateError(
               ErrorCode.UNEXPECTED_VERIFY_ERROR,
-              'An unexpected error was encountered, please try again.',
+              'The TransGate extension could not generate the proof. Please retry the verification.',
             ),
           );
         }
@@ -300,14 +357,26 @@ export default class TransgateConnect extends LegacyVerification {
         }
         cleanup();
         if (!event.data.ephemeralAddress) {
-          reject(new TransgateError(ErrorCode.TASK_RPC_ERROR, 'Extension did not provide an ephemeral address.'));
+          reject(
+            new TransgateError(
+              ErrorCode.TASK_RPC_ERROR,
+              'The TransGate extension prepared the task without returning an ephemeral wallet address.',
+            ),
+          );
           return;
         }
         resolve({ taskRequestId, ephemeralAddress: event.data.ephemeralAddress });
       };
       const timeout = setTimeout(() => {
         cleanup();
-        reject(new TransgateError(ErrorCode.REQUEST_TIMEOUT, 'Extension task preparation timed out.'));
+        reject(
+          new TransgateError(
+            ErrorCode.REQUEST_TIMEOUT,
+            `The TransGate extension did not prepare the task within ${
+              ExtensionTaskPreparationTimeoutMs / 1000
+            } seconds.`,
+          ),
+        );
       }, ExtensionTaskPreparationTimeoutMs);
       window.addEventListener('message', listener);
       window.postMessage(
@@ -321,11 +390,6 @@ export default class TransgateConnect extends LegacyVerification {
     });
   }
 
-  /**
-   * request task info
-   * @param {*} schemaId string schema id
-   * @returns
-   */
   private async requestTaskInfo(taskUrl: string, token: string, schemaId: string, vm: SignatureVm): Promise<Task> {
     const response = await fetch(`https://${taskUrl}`, {
       method: 'POST',
@@ -345,7 +409,10 @@ export default class TransgateConnect extends LegacyVerification {
       return result.info;
     }
 
-    throw new TransgateError(ErrorCode.TASK_RPC_ERROR, 'Request task info error');
+    throw new TransgateError(
+      ErrorCode.TASK_RPC_ERROR,
+      describeHttpFailure(`Task allocation for schema "${schemaId}"`, response),
+    );
   }
 
   private async requestExtensionTaskInfo(
@@ -367,7 +434,10 @@ export default class TransgateConnect extends LegacyVerification {
       cache: 'no-cache',
     });
     if (!response.ok) {
-      throw new TransgateError(ErrorCode.TASK_RPC_ERROR, `Request extension task info error: ${response.statusText}`);
+      throw new TransgateError(
+        ErrorCode.TASK_RPC_ERROR,
+        describeHttpFailure(`Extension task allocation for schema "${schemaId}"`, response),
+      );
     }
     return await response.json();
   }
@@ -387,18 +457,21 @@ export default class TransgateConnect extends LegacyVerification {
       return result.info;
     }
 
-    throw new TransgateError(ErrorCode.ILLEGAL_APPID, 'Please check your appid');
+    throw new TransgateError(
+      ErrorCode.ILLEGAL_APPID,
+      describeHttpFailure(`Loading configuration for app "${this.appid}"`, response),
+    );
   }
-  /**
-   * request schema detail info
-   * @param schemaUrl
-   */
+
   private async requestSchemaInfo(schemaUrl: string) {
     const response = await fetch(schemaUrl);
     if (response.ok) {
       return await response.json();
     }
-    throw new TransgateError(ErrorCode.ILLEGAL_SCHEMA_ID, 'Illegal schema url, please contact develop team!');
+    throw new TransgateError(
+      ErrorCode.ILLEGAL_SCHEMA_ID,
+      describeHttpFailure(`Loading schema from ${schemaUrl}`, response),
+    );
   }
 
   private async getProofInfo(taskId: string, callbackUrl: string) {
@@ -407,14 +480,19 @@ export default class TransgateConnect extends LegacyVerification {
       const requestInfo = () => {
         loopCount++;
         if (loopCount > 300) {
-          this.removeModal && this.removeModal();
-          reject(new TransgateError(ErrorCode.REQUEST_TIMEOUT, 'Request timeout, please try again'));
+          this.removeModal?.();
+          reject(
+            new TransgateError(
+              ErrorCode.REQUEST_TIMEOUT,
+              `Timed out waiting for proof result for task "${taskId}". Please start the verification again.`,
+            ),
+          );
           return;
         }
 
         if (this.terminal) {
-          this.removeModal && this.removeModal();
-          reject(new TransgateError(ErrorCode.VERIFICATION_CANCELED, 'User terminal the validation.'));
+          this.removeModal?.();
+          reject(new TransgateError(ErrorCode.VERIFICATION_CANCELED, 'Verification was canceled by the user.'));
           return;
         }
 
@@ -423,7 +501,7 @@ export default class TransgateConnect extends LegacyVerification {
             const response = await fetch(`${callbackUrl}?task_index=${taskId}`, { signal: AbortSignal.timeout(5000) });
             if (response.ok) {
               const res = await response.json();
-              this.removeModal && this.removeModal();
+              this.removeModal?.();
               resolve(res.info);
             } else {
               requestInfo();
@@ -444,18 +522,23 @@ export default class TransgateConnect extends LegacyVerification {
       const requestScanResult = () => {
         loopCount++;
         if (loopCount > 300) {
-          reject(new TransgateError(ErrorCode.REQUEST_TIMEOUT, 'Request timeout, please try again'));
+          reject(
+            new TransgateError(
+              ErrorCode.REQUEST_TIMEOUT,
+              `Timed out waiting for task "${taskId}" to be scanned. Please start the verification again.`,
+            ),
+          );
           return;
         }
 
         if (this.terminal) {
-          reject(new TransgateError(ErrorCode.VERIFICATION_CANCELED, 'User terminal the validation.'));
+          reject(new TransgateError(ErrorCode.VERIFICATION_CANCELED, 'Verification was canceled by the user.'));
           return;
         }
 
         setTimeout(async () => {
           try {
-            const response = await await fetch(ScanResultUrl, {
+            const response = await fetch(ScanResultUrl, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -466,7 +549,6 @@ export default class TransgateConnect extends LegacyVerification {
             });
             if (response.ok) {
               const res = await response.json();
-              //Task ID has been used
               if (res.info.used) {
                 resolve(true);
               } else {
@@ -496,13 +578,13 @@ export default class TransgateConnect extends LegacyVerification {
   }
 
   handleIOSApp(clipUrl: string) {
-    const loading_box = document.getElementById(DomElementId.LOADING);
-    loading_box?.remove();
-    const complete_box = document.getElementById(DomElementId.COMPLETE);
-    const verify_button = document.getElementById(DomElementId.VERIFY);
-    if (complete_box) {
-      complete_box.style.display = 'flex';
-      verify_button?.addEventListener('click', () => {
+    const loadingBox = document.getElementById(DomElementId.LOADING);
+    loadingBox?.remove();
+    const completeBox = document.getElementById(DomElementId.COMPLETE);
+    const verifyButton = document.getElementById(DomElementId.VERIFY);
+    if (completeBox) {
+      completeBox.style.display = 'flex';
+      verifyButton?.addEventListener('click', () => {
         launchApp(clipUrl);
       });
     }
