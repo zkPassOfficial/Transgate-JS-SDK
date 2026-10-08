@@ -6,7 +6,7 @@ const { beginCell } = require('@ton/core');
 const { parseSignatureVm, verifyExtensionProof } = require('../lib/proofVerifier');
 const { ErrorCode, TransgateError } = require('../lib/error');
 const TransgateConnect = require('../lib').default;
-const { ExtensionProofAllocator, ExtensionTaskUrl } = require('../lib/constants');
+const { ExtensionProofAllocator, ExtensionTaskUrl, server } = require('../lib/constants');
 
 const wallet = Wallet.createRandom();
 const hash = keccak256(new Uint8Array());
@@ -193,6 +193,49 @@ test('SDK applies for Extension taskInfo with the prepared address', async (t) =
     host: 'api.example',
     ephemeral_address: wallet.address,
     owner: 'owner',
+  });
+});
+
+test('loads schema once before requesting legacy task information', async (t) => {
+  const previousFetch = global.fetch;
+  const requests = [];
+  global.fetch = async (url, options) => {
+    requests.push({ url, options });
+    if (url === `${server}/sdk/schema`) {
+      return {
+        ok: true,
+        json: async () => ({
+          info: {
+            id: 'schema-1',
+            task_rpc: 'task.example/task/new',
+            token: 'schema-token',
+          },
+        }),
+      };
+    }
+    return { ok: true, json: async () => ({ info: { task: 'task-1' } }) };
+  };
+  t.after(() => {
+    global.fetch = previousFetch;
+  });
+
+  const client = new TransgateConnect('app-1');
+  const schemaInfo = await client.requestSchemaInfo('schema-1');
+  await client.requestTaskInfo(schemaInfo, 'schema-1', 'svm');
+
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].url, `${server}/sdk/schema`);
+  assert.deepEqual(JSON.parse(requests[0].options.body), {
+    app_id: 'app-1',
+    schema_id: 'schema-1',
+  });
+  assert.equal(requests[1].url, 'https://task.example/task/new');
+  assert.deepEqual(JSON.parse(requests[1].options.body), {
+    token: 'schema-token',
+    schema_id: 'schema-1',
+    app_id: 'app-1',
+    chain_type: 'sol',
+    debug: false,
   });
 });
 

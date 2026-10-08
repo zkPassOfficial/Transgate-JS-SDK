@@ -9,13 +9,6 @@ export enum EventDataType {
 
 export declare type SignatureVm = 'evm' | 'svm' | 'tvm';
 
-export interface TaskConfig {
-  schemas: { schema_id: string }[];
-  task_rpc: string;
-  token: string;
-  callbackUrl?: string;
-}
-
 export interface Task {
   task: string;
   node_address: string;
@@ -24,6 +17,22 @@ export interface Task {
   node_pk: string;
   alloc_address: string;
   alloc_signature: string;
+}
+
+export interface SchemaInfo {
+  id?: string;
+  schemaId?: string;
+  schema_id?: string;
+  website?: string;
+  APIs?: Array<{ host?: string }>;
+  callbackUrl?: string;
+  task_rpc?: string;
+  token?: string;
+  node_host?: string;
+  nodeHost?: string;
+  node_pk?: string;
+  nodePK?: string;
+  [key: string]: unknown;
 }
 
 export interface ExtensionTask {

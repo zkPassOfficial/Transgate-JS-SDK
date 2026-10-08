@@ -19,7 +19,7 @@ import {
   SignatureVmValue,
   WindowMessageTargetOrigin,
 } from './constants';
-import { EventDataType, Task, TaskConfig, VerifyResult, SignatureVm } from './types';
+import { EventDataType, SchemaInfo, Task, VerifyResult, SignatureVm } from './types';
 import { ErrorCode, TransgateError } from './error';
 import {
   insertQrcodeMask,
@@ -90,17 +90,9 @@ export default class TransgateConnect extends LegacyVerification {
 
     this.transgateAvailable = await this.isTransgateAvailable();
 
-    const config = await this.requestConfig();
-    if (!config.schemas.some((schema) => schema.schema_id === schemaId)) {
-      throw new TransgateError(
-        ErrorCode.ILLEGAL_SCHEMA_ID,
-        `Schema "${schemaId}" is not available for app "${this.appid}".`,
-      );
-    }
-
-    const callbackUrl = config.callbackUrl || DefaultCallbackUrl;
+    const schemaInfo = await this.requestSchemaInfo(schemaId);
+    const callbackUrl = schemaInfo.callbackUrl || DefaultCallbackUrl;
     if (device === DeviceType.BROWSER && this.transgateAvailable) {
-      const schemaInfo = await this.requestSchemaInfo(`${this.baseServer}/schema/${schemaId}`);
       const wallet = await this.prepareExtensionWallet();
       const host = schemaInfo.APIs?.[0]?.host || (schemaInfo.website ? new URL(schemaInfo.website).hostname : '');
       if (!host) {
@@ -126,7 +118,7 @@ export default class TransgateConnect extends LegacyVerification {
       });
     }
 
-    const taskInfo = await this.requestTaskInfo(config.task_rpc, config.token, schemaId, vm);
+    const taskInfo = await this.requestTaskInfo(schemaInfo, schemaId, vm);
     const chainType = LegacyChainTypeByVm[vm];
 
     let query = `app_id=${this.appid}&task_id=${taskInfo.task}&schema_id=${schemaId}&chain_type=${chainType}&callback_url=${callbackUrl}`;
@@ -207,7 +199,7 @@ export default class TransgateConnect extends LegacyVerification {
   }: {
     schemaId: string;
     taskInfo: ExtensionTask;
-    schemaInfo: any;
+    schemaInfo: SchemaInfo;
     taskRequestId: string;
     ephemeralAddress: string;
     address?: Address;
@@ -215,6 +207,7 @@ export default class TransgateConnect extends LegacyVerification {
   }) {
     const extensionParams = {
       ...schemaInfo,
+      id: schemaInfo.id || schemaInfo.schemaId || schemaInfo.schema_id || schemaId,
       appid: this.appid,
       task: taskInfo.task_id,
       taskInfo,
@@ -390,14 +383,21 @@ export default class TransgateConnect extends LegacyVerification {
     });
   }
 
-  private async requestTaskInfo(taskUrl: string, token: string, schemaId: string, vm: SignatureVm): Promise<Task> {
-    const response = await fetch(`https://${taskUrl}`, {
+  private async requestTaskInfo(schemaInfo: SchemaInfo, schemaId: string, vm: SignatureVm): Promise<Task> {
+    if (!schemaInfo.task_rpc || !schemaInfo.token) {
+      throw new TransgateError(
+        ErrorCode.ILLEGAL_SCHEMA,
+        `Schema "${schemaId}" does not include the task service configuration required for app verification.`,
+      );
+    }
+
+    const response = await fetch(`https://${schemaInfo.task_rpc}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        token,
+        token: schemaInfo.token,
         schema_id: schemaId,
         app_id: this.appid,
         chain_type: LegacyChainTypeByVm[vm],
@@ -442,35 +442,25 @@ export default class TransgateConnect extends LegacyVerification {
     return await response.json();
   }
 
-  private async requestConfig(): Promise<TaskConfig> {
-    const response = await fetch(`${this.baseServer}/sdk/config`, {
+  private async requestSchemaInfo(schemaId: string): Promise<SchemaInfo> {
+    const response = await fetch(`${this.baseServer}/sdk/schema`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
         app_id: this.appid,
+        schema_id: schemaId,
       }),
     });
     if (response.ok) {
       const result = await response.json();
-      return result.info;
+      return result.info || result;
     }
 
-    throw new TransgateError(
-      ErrorCode.ILLEGAL_APPID,
-      describeHttpFailure(`Loading configuration for app "${this.appid}"`, response),
-    );
-  }
-
-  private async requestSchemaInfo(schemaUrl: string) {
-    const response = await fetch(schemaUrl);
-    if (response.ok) {
-      return await response.json();
-    }
     throw new TransgateError(
       ErrorCode.ILLEGAL_SCHEMA_ID,
-      describeHttpFailure(`Loading schema from ${schemaUrl}`, response),
+      describeHttpFailure(`Loading schema "${schemaId}" for app "${this.appid}"`, response),
     );
   }
 
