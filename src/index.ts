@@ -94,16 +94,8 @@ export default class TransgateConnect extends LegacyVerification {
     const callbackUrl = schemaInfo.callbackUrl || DefaultCallbackUrl;
     if (device === DeviceType.BROWSER && this.transgateAvailable) {
       const wallet = await this.prepareExtensionWallet();
-      const host = schemaInfo.APIs?.[0]?.host || (schemaInfo.website ? new URL(schemaInfo.website).hostname : '');
-      if (!host) {
-        throw new TransgateError(
-          ErrorCode.ILLEGAL_SCHEMA,
-          `Schema "${schemaId}" does not define a website or API host for task allocation.`,
-        );
-      }
       const taskInfo = await this.requestExtensionTaskInfo(
         schemaId,
-        host,
         wallet.ephemeralAddress,
         address ? String(address) : undefined,
       );
@@ -417,7 +409,6 @@ export default class TransgateConnect extends LegacyVerification {
 
   private async requestExtensionTaskInfo(
     schemaId: string,
-    host: string,
     ephemeralAddress: string,
     owner?: string,
   ): Promise<ExtensionTask> {
@@ -427,7 +418,6 @@ export default class TransgateConnect extends LegacyVerification {
       body: JSON.stringify({
         app_id: this.appid,
         schema_id: schemaId,
-        host,
         ephemeral_address: ephemeralAddress,
         owner,
       }),

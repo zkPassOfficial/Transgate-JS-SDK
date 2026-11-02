@@ -185,12 +185,11 @@ test('SDK applies for Extension taskInfo with the prepared address', async (t) =
   t.after(() => {
     global.fetch = previousFetch;
   });
-  await new TransgateConnect('app').requestExtensionTaskInfo('schema', 'api.example', wallet.address, 'owner');
+  await new TransgateConnect('app').requestExtensionTaskInfo('schema', wallet.address, 'owner');
   assert.equal(request.url, ExtensionTaskUrl);
   assert.deepEqual(JSON.parse(request.options.body), {
     app_id: 'app',
     schema_id: 'schema',
-    host: 'api.example',
     ephemeral_address: wallet.address,
     owner: 'owner',
   });
@@ -246,15 +245,12 @@ test('describes task allocation HTTP failures with schema and status', async (t)
     global.fetch = previousFetch;
   });
 
-  await assert.rejects(
-    new TransgateConnect('app').requestExtensionTaskInfo('schema-1', 'api.example', wallet.address),
-    (error) => {
-      assert.ok(error instanceof TransgateError);
-      assert.equal(error.code, ErrorCode.TASK_RPC_ERROR);
-      assert.match(error.message, /Extension task allocation for schema "schema-1" failed with HTTP 503/);
-      return true;
-    },
-  );
+  await assert.rejects(new TransgateConnect('app').requestExtensionTaskInfo('schema-1', wallet.address), (error) => {
+    assert.ok(error instanceof TransgateError);
+    assert.equal(error.code, ErrorCode.TASK_RPC_ERROR);
+    assert.match(error.message, /Extension task allocation for schema "schema-1" failed with HTTP 503/);
+    return true;
+  });
 });
 
 test('passes the requested VM to Extension and verifies that VM signature', async (t) => {
