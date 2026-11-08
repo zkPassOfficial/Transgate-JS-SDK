@@ -21,7 +21,7 @@
     "MPC"
   ],
   "author": "Stone",
-  "license": "MIT",
+  "license": "ISC",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/zkPassOfficial/Transgate-JS-SDK.git"
